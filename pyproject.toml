@@ -1,0 +1,27 @@
+[project]
+name = "bayes-phase"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "botorch>=0.14.0",
+    "gpytorch>=1.14",
+    "jupyterlab>=4.4.4",
+    "matplotlib>=3.10.3",
+    "numpy>=2.3.1",
+    "polars>=1.31.0",
+    "pyarrow>=20.0.0",
+    "pytest>=8.4.1",
+    "scipy>=1.16.0",
+    "torch>=2.7.1",
+]
+
+[dependency-groups]
+dev = [
+    "icecream>=2.1.5",
+    "ruff>=0.12.3",
+]
+
+[tool.setuptools]
+packages = ["bayes_phase"]
