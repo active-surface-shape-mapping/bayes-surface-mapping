@@ -26,6 +26,8 @@ def test_simulation_oracle():
     with pytest.raises(ValueError):
         a2_none = oracle.measure(10.5, 15, interpolation="none")  # NOQA: F841
     a3_none = oracle.measure(11.0, 15, interpolation="none")
+    with pytest.raises(ValueError):
+        a3_none = oracle.measure(11.0, 18, interpolation="none")
 
     assert torch.allclose(a1_nearest, a2_nearest)
     assert torch.allclose(a3_nearest, a4_nearest)
