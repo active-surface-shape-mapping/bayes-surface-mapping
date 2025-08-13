@@ -14,8 +14,8 @@ class DerivativesDiagramGenerator(BaseDiagramGenerator):
         max_temp: float,
         n_theta: int,
         n_temp_grid: int = 500,
-        ddt_threshold: float = 0.25,
-        d2dt2_threshold: float = -1.0,
+        ddt_threshold: float = 0.1,
+        d2dt2_threshold: float = -0.0,
         n_starts: int = 10,
     ):
         self.model = model

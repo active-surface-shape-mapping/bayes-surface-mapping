@@ -14,7 +14,7 @@ class TwiceDifferentiableRBF(gpytorch.models.ExactGP, BaseModel):
     ):
         # Define likelihood, mean, and kernel:
         likelihood = gpytorch.likelihoods.GaussianLikelihood(
-            noise_prior=gpytorch.priors.LogNormalPrior(0, 1)
+            noise_prior=None,  # gpytorch.priors.LogNormalPrior(-2, 1)
         )
         BaseModel.__init__(self, min_temp, max_temp, n_theta)
         super(TwiceDifferentiableRBF, self).__init__(
@@ -27,10 +27,11 @@ class TwiceDifferentiableRBF(gpytorch.models.ExactGP, BaseModel):
         self.mean_module = gpytorch.means.ConstantMean()
         self.base_kernel = RBFKernelWithGrad(
             ard_num_dims=2,
-            lengthscale_prior=gpytorch.priors.LogNormalPrior(-4, 0.5),
+            lengthscale_prior=None,  # gpytorch.priors.LogNormalPrior(-2, 0.5),
         )
         self.covar_module = gpytorch.kernels.ScaleKernel(
-            self.base_kernel, outputscale_prior=gpytorch.priors.LogNormalPrior(0, 1)
+            self.base_kernel,
+            outputscale_prior=None,  # gpytorch.priors.LogNormalPrior(0, 1)
         )
         self.likelihood = likelihood
 
