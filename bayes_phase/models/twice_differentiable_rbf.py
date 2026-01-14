@@ -4,6 +4,7 @@ from typing import Literal, Optional
 from .kernels import RBFKernelWithGrad
 from jaxtyping import Float
 from bayes_phase.models.base_model import BaseModel
+torch.set_default_dtype(torch.float64)
 
 
 class TwiceDifferentiableRBF(gpytorch.models.ExactGP, BaseModel):
@@ -147,4 +148,74 @@ class TwiceDifferentiableRBF(gpytorch.models.ExactGP, BaseModel):
                 covariance[i, :] = k_xs_xs.diag() - outer_product
         else:
             covariance = None
+        return f_pred, covariance
+
+
+
+    def pred_condition_1st_deriv(
+        self,
+        x_test: Float[torch.Tensor, "n2 d"], # Test points
+        maximum_locs: Float[torch.Tensor, "nr"], # Vector of indices for maxima in x_test
+    ) -> tuple[
+        Float[torch.Tensor, "n2+nr"], # Posterior mean vector for function values at test points and second derivatives at maxima
+        Float[torch.Tensor, "n2+nr n2+nr"] # Posterior covariance for function values at test points and 2nd derivatives at maxima.
+    ]:
+        """Predict function values at test points and second derivatives at maxima (ridge points)"""
+
+        o = self.covar_module.outputscale
+        jitter = 1e-9
+
+        x_ridge = x_test[maximum_locs] # x-values at maxima
+        maxima_1stderiv_zeros = torch.zeros(maximum_locs.shape[0],1) # Constant mean of GP, so prior is derivatives of zero
+        maxima_2ndderiv_prior = torch.zeros(maximum_locs.shape[0],1) 
+
+        prior_mean = torch.vstack((self.mean_module(self._x_train).unsqueeze(-1),maxima_1stderiv_zeros))
+        prior_pred_mean = torch.vstack((self.mean_module(x_test).unsqueeze(-1),maxima_2ndderiv_prior))
+
+        # Training data.
+        x_train = self._x_train # n_train, d
+        # Augment y_train with ridge point derivatives.
+        y_train = torch.vstack((self._y_train.unsqueeze(-1), maxima_1stderiv_zeros)) # n_train + n_maxima, 1
+
+        #K1: Prior covariance; auto-covariance of: [f(test_x() concat with 2nd derivatives at x_ridge]
+        K_xtest_xtest = self.covar_module(x_test, x_test).to_dense() # n_test, n_test
+        K_d2x_xtest = o * self.base_kernel.d2dxt2(x_ridge,x_test).to_dense() # n_ridge, n_test
+        K_xtest_d2x = K_d2x_xtest.T # n_test, n_ridge
+        K_d2x_d2x = o * self.base_kernel.d4dxt2zt2(x_ridge,x_ridge).to_dense() # n_ridge, n_ridge
+        K1 = torch.vstack([torch.hstack([K_xtest_xtest,K_xtest_d2x]),torch.hstack([K_d2x_xtest,K_d2x_d2x])])  #n _test + n_ridge, n_test + n_ridge
+
+        #K2: Cross-covariance between: [f(test_x() concat with 2nd derivatives at x_ridge] and [f(train_x) concat with 1st derivatives at x_ridge]
+        K_xtest_x = self.covar_module(x_test, x_train).to_dense() # n_test, n_train
+        K_dx_xtest = o * self.base_kernel.ddxt(x_ridge,x_test).to_dense() # n_ridge, n_test
+        K_xtest_dx = K_dx_xtest.T # n_test, n_ridge
+        K_d2x_x = o * self.base_kernel.d2dxt2(x_ridge,x_train).to_dense() # n_ridge, n_train
+        K_d2x_dx = o * self.base_kernel.d3dxt2zt(x_ridge,x_ridge).to_dense() # n_ridge, n_ridge
+        K2 = torch.vstack([torch.hstack([K_xtest_x,K_xtest_dx]),torch.hstack([K_d2x_x,K_d2x_dx])]) # n_test + n_ridge, n_train + n_ridge
+
+        # K4: Transpose of K2
+        K4 = K2.T # n_train + n_ridge, n_test + n_ridge
+
+        # Following Garnett (bayesoptbook.com) page 202, update previously computed Cholesky factor rather than compute K3
+        L_prev = self._L.to_dense() # n_train, n_train
+        X1 = o * self.base_kernel.ddxt(x_ridge,x_train).to_dense() # K_dx_x; n_ridge, n_train
+        X2 = o * self.base_kernel.d2dxtzt(x_ridge,x_ridge).to_dense() # K_dx_dx; n_ridge, n_ridge
+        Lam1 = torch.linalg.solve_triangular(L_prev.T,X1,upper=True,left=False) # Lambda 1 = X1@L^-T
+        S = X2 - Lam1@Lam1.T # n_ridge, n_ridge
+        Lam2 = torch.linalg.cholesky(S + jitter * torch.eye(X2.shape[0])) # n_ridge, n_ridge
+        zeros = torch.zeros((L_prev.shape[0],Lam2.shape[1]), device=L_prev.device, dtype=L_prev.dtype) # n_train, n_ridge
+
+        L_new = torch.vstack([torch.hstack([L_prev,zeros]),torch.hstack([Lam1,Lam2])]) #n_train + n_ridge, n_train + n_ridge
+
+        alpha = torch.cholesky_solve(
+            (y_train - prior_mean), 
+            L_new
+        )
+
+        #Posterior mean, including second derivatives
+        f_pred = (K2@alpha + prior_pred_mean).squeeze(-1) # n_test + n_ridge
+
+        #Covariance, including for second derivatives
+        v = torch.linalg.solve_triangular(L_new, K4, upper=False)
+        covariance = K1 - v.T@v # n_test + n_ridge, n_test + n_ridge
+
         return f_pred, covariance
