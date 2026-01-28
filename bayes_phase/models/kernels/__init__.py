@@ -1,1 +1,2 @@
 from .rbf_kernel_with_grad import RBFKernelWithGrad as RBFKernelWithGrad
+from .matern_kernel_with_grad import MaternKernelWithGrad as MaternKernelWithGrad
