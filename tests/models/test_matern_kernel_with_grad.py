@@ -1,13 +1,18 @@
 from bayes_phase.models.kernels import MaternKernelWithGrad
 import torch
 from scipy.differentiate import derivative
-
+import pytest
 
 torch.set_default_dtype(torch.double)
 
 
 def test_init_matern_kernel_with_grad():
     kernel = MaternKernelWithGrad(ard_num_dims=2)  # NOQA: F841
+    kernel = MaternKernelWithGrad(0.5, ard_num_dims=2)  # NOQA: F841
+    kernel = MaternKernelWithGrad(nu=1.5, ard_num_dims=2)  # NOQA: F841
+    with pytest.raises(RuntimeError) as err:
+        kernel = MaternKernelWithGrad(nu=2.0, ard_num_dims=2)  # NOQA: F841
+    assert err.value.args == ("nu expected to be 0.5, 1.5, or 2.5",)
 
 
 def test_first_derivative():
