@@ -13,10 +13,10 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP, BaseModel):
         self,
         train_x,
         train_y,
-        base_kernel: [MaternKernelWithGrad | RBFKernelWithGrad],
         min_temp: float,
         max_temp: float,
         n_theta: int,
+        base_kernel: [MaternKernelWithGrad | RBFKernelWithGrad],
         mean_module: Optional[gpytorch.means.Mean] = None,
     ):
         # Define likelihood, mean, and kernel:
