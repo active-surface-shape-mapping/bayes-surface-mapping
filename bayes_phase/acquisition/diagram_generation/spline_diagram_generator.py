@@ -1,8 +1,9 @@
 from bayes_phase.acquisition.diagram_generation import BaseDiagramGenerator
 import gpytorch
 import torch
-from scipy.interpolate import CubicSpline
 from scipy.optimize import minimize
+from scipy.interpolate import CubicSpline
+from .base_diagram_generator import DiagramOutput
 
 
 class SplineDiagramGenerator(BaseDiagramGenerator):
@@ -15,7 +16,7 @@ class SplineDiagramGenerator(BaseDiagramGenerator):
         n_theta: int,
         n_temp_grid: int = 500,
         n_starts: int = 10,
-        peak_threshold: float = 0.65,
+        peak_threshold: float = 0.7,
     ):
         self.model = model
         self.likelihood = likelhood
@@ -37,13 +38,22 @@ class SplineDiagramGenerator(BaseDiagramGenerator):
         self.starts = torch.linspace(min_temp, max_temp, n_starts)
         self.peak_threshold = peak_threshold
 
-    def generate_diagram(self):
+    def generate_diagram(self) -> DiagramOutput:
         sample = self.distribution.sample().reshape((self.n_temp_grid, self.n_theta))
         n = self.n_theta
         opts_pred = torch.zeros((n, len(self.starts), 2))
         vals_pred = torch.zeros((n, len(self.starts), 1))
+        peaks = []
         for i in range(n):
             spline = CubicSpline(self.temp_grid, -sample[:, i])
+            #     d_spline = spline.derivative()
+            #     critical_points = d_spline.roots()
+            #     print(critical_points)
+            #     mask = spline(critical_points) < 0.0
+            #     local_maxs = torch.tensor(critical_points[mask])
+            #     theta = torch.full_like(local_maxs, i, dtype=torch.double)
+            #     peaks.append(torch.stack((local_maxs, theta)).T)
+            # return torch.vstack(peaks), sample
             for j, start in enumerate(self.starts):
                 opt = minimize(
                     spline,
