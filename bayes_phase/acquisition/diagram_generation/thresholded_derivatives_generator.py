@@ -1,11 +1,9 @@
 from bayes_phase.acquisition.diagram_generation import BaseDiagramGenerator
 import gpytorch
 import torch
-from scipy.interpolate import CubicSpline
-from scipy.optimize import minimize
 
 
-class DerivativesDiagramGenerator(BaseDiagramGenerator):
+class ThresholdedDerivativesDiagramGenerator(BaseDiagramGenerator):
     def __init__(
         self,
         model: gpytorch.models.ExactGP,
@@ -14,8 +12,8 @@ class DerivativesDiagramGenerator(BaseDiagramGenerator):
         max_temp: float,
         n_theta: int,
         n_temp_grid: int = 500,
-        ddt_threshold: float = 0.1,
-        d2dt2_threshold: float = -0.0,
+        ddt_threshold: float = 0.05,
+        d2dt2_threshold: float = -1.0,
         n_starts: int = 10,
     ):
         self.model = model
@@ -40,23 +38,21 @@ class DerivativesDiagramGenerator(BaseDiagramGenerator):
         self.d2dt2_threshold = d2dt2_threshold
 
     def generate_diagram(self):
-        raise NotImplementedError  # TODO
-        sample = self.distribution.sample().reshape((self.n_temp_grid, self.n_theta))
-        n = self.n_theta
-        opts_pred = torch.zeros((n, len(self.starts), 2))
-        vals_pred = torch.zeros((n, len(self.starts), 1))
-        for i in range(n):
-            spline = CubicSpline(self.temp_grid, -sample[:, i])
-            for j, start in enumerate(self.starts):
-                opt = minimize(
-                    spline,
-                    x0=[start],
-                    method="Nelder-Mead",
-                    bounds=[(self.min_temp, self.max_temp)],
-                )
-                opts_pred[i, j, 0] = opt.x.item()
-                opts_pred[i, j, 1] = i + 1
-                vals_pred[i, j, 0] = -opt.fun
-        return self._normalize_peaks(
-            opts_pred, vals_pred, threshold=self.peak_threshold
-        ), sample
+        points = self.model.transform_inputs(self.points)
+        print(points.shape)
+        mean, covar = self.model.predict_with_grad(points, compute_covariance="full")
+        print(mean.shape)
+        print(covar.shape)
+        raise NotImplementedError(
+            "Diagram generation not fully implemented for thresholded derivatives."
+        )
+        sample_with_grad = torch.distributions.MultivariateNormal(mean, covar).sample(
+            mean.shape
+        )
+        sample = sample_with_grad[0, :]
+        peaks = (sample_with_grad[:, 1] < self.ddt_threshold) & (
+            sample_with_grad[:, 2] < self.d2dt2_threshold
+        )
+        peak_locations = self.points[peaks]
+
+        return peak_locations, sample
