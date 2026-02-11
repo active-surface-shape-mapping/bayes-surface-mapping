@@ -1,3 +1,4 @@
 from .base_model import BaseModel as BaseModel
-from .twice_differentiable_rbf import TwiceDifferentiableRBF as TwiceDifferentiableRBF
-from .twice_differentiable_matern import TwiceDifferentiableMatern as TwiceDifferentiableMatern
+from .twice_differentiable_model import (
+    TwiceDifferentiableModel as TwiceDifferentiableModel,
+)
