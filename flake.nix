@@ -16,31 +16,14 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          fhs = pkgs.buildFHSEnv {
+              name = "uv-fhs-env";
+              targetPkgs = pkgs: with pkgs; [ pkgs.uv libz ];
+              runScript = "./splash.sh";
+            };
         in
         {
-          default = pkgs.mkShell {
-            packages = [
-              pkgs.python3
-              pkgs.uv
-              pkgs.zsh
-              pkgs.git
-            ];
-
-            env = lib.optionalAttrs pkgs.stdenv.isLinux {
-              # Python libraries often load native shared objects using dlopen(3).
-              # Setting LD_LIBRARY_PATH makes the dynamic library loader aware of libraries without using RPATH for lookup.
-              LD_LIBRARY_PATH = lib.makeLibraryPath pkgs.pythonManylinuxPackages.manylinux1;
-            };
-
-            shellHook = ''
-              echo TEST
-              unset PYTHONPATH
-              uv sync
-              uv pip install -e .
-              . .venv/bin/activate
-              zsh
-            '';
-          };
+          default = fhs.env;
         }
       );
     };
