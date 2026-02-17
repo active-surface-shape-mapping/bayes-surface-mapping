@@ -47,3 +47,11 @@ class BaseDataGenerator(ABC):
     def max_theta(self) -> float:
         """Return the maximum theta bound."""
         ...
+
+    @property
+    def temp_range(self) -> float:
+        return self.max_temp - self.min_temp
+
+    @property
+    def theta_range(self) -> float:
+        return self.max_theta - self.min_theta
