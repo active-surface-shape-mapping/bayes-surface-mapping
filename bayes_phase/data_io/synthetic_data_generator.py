@@ -3,22 +3,31 @@ from pathlib import Path
 import numpy as np
 import torch
 import polars as pl
-from bayes_phase.io import read_data
+from bayes_phase.data_io import BaseDataGenerator, read_data
 
 
-class SimulationOracle:
+class SyntheticDataGenerator(BaseDataGenerator):
     """An oracle that mocks heat capacity simulations using prerecorded data."""
 
-    def __init__(self, paths_to_data: Sequence[str | Path]):
+    def __init__(
+        self,
+        paths_to_data: Sequence[str | Path],
+    ):
+        self.paths_to_data = paths_to_data
         self.n_samples = len(paths_to_data)
         self.data = read_data(paths_to_data)
         self.temperatures = np.array(self.data["temp_in_K"].unique())
+        theta_columns = filter(lambda col: "θ_" in col, self.data.columns)
+        thetas = [int(col.split("_")[1]) for col in theta_columns]
+        self._min_theta = np.min(thetas)
+        self._max_theta = np.max(thetas)
 
-    def measure(
+    def measure_single(
         self,
         temperature: float,
         theta: int,
         interpolation: Literal["linear", "nearest", "none"] = "linear",
+        **kwargs,
     ) -> torch.DoubleTensor:
         """'Measure' an observation from the prerecorded data.
 
@@ -74,3 +83,23 @@ class SimulationOracle:
             return result
         except pl.exceptions.ColumnNotFoundError as err:
             raise ValueError(str(err))
+
+    @property
+    def min_temp(self) -> float:
+        min_temp = self.data["temp_in_K"].min()
+        assert isinstance(min_temp, float)
+        return min_temp
+
+    @property
+    def max_temp(self) -> float:
+        max_temp = self.data["temp_in_K"].max()
+        assert isinstance(max_temp, float)
+        return max_temp
+
+    @property
+    def min_theta(self) -> float:
+        return self._min_theta
+
+    @property
+    def max_theta(self) -> float:
+        return self._max_theta
