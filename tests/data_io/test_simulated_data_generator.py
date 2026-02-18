@@ -17,6 +17,26 @@ def test_simulated_data_generator_init():
     assert oracle.min_theta == 1
     assert oracle.max_theta == 16
 
+def test_simulated_data_generator_measure():
+    oracle = SimulatedDataGenerator(
+        [
+            "data/111_Cv_run1.arrow",
+            "data/111_Cv_run2.arrow",
+            "data/111_Cv_run3.arrow",
+        ]
+    )
+    # Single measurement
+    assert oracle.measure_single(1000.0, 7).shape == (3,)
+    
+    # Stacked measurements
+    u = torch.distributions.Uniform(torch.tensor(0.0), torch.tensor(1.0)).sample((11, 2))
+    y1 = oracle.measure_uniform(u)
+    assert y1.shape == (11, 3)
+    x = oracle.untransform_inputs(u)
+    y2 = oracle.measure(x[:, 0], x[:, 1])
+    assert y2.shape == (11, 3)
+    assert y1.allclose(y2)
+
 def test_simulated_data_generator_interpolation():
     oracle = SimulatedDataGenerator(
         [

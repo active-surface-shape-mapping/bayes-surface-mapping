@@ -5,22 +5,23 @@ import numpy as np
 
 
 class BaseDataGenerator(ABC):
-    def measure_on_unit_cube(self, u: Float[torch.Tensor, "n 2"]) -> Float[torch.Tensor, "n 1"]:
+    def measure_uniform(self, u: Float[torch.Tensor, "n 2"], **kwargs) -> Float[torch.Tensor, "n m"]:
         if (u.ndim != 2) or (u.shape[1] != 2):
             raise ValueError(f"Expected u to have shape (n, 2) but got u with shape {u.shape}")
         x = self.untransform_inputs(u)
-        return self.measure(x[:, 0], x[:, 1])
+        return self.measure(x[:, 0], x[:, 1], **kwargs)
 
     def measure(
         self,
         temperatures: Float[torch.Tensor, " n"],
         thetas: Int[torch.Tensor, " n"],
         **kwargs,
-    ) -> Float[torch.Tensor, "n 1"]:
-        measurements = []
+    ) -> Float[torch.Tensor, "n m"]:
+        all_results = []
         for temp, theta in zip(temperatures, thetas):
-            measurements.append(self.measure_single(temp.item(), int(theta.item()), **kwargs))
-        return torch.tensor(measurements).reshape((-1, 1))
+            results = self.measure_single(temp.item(), int(theta.item()), **kwargs)
+            all_results.append(results)
+        return torch.stack(all_results)
 
     @abstractmethod
     def measure_single(
@@ -28,7 +29,7 @@ class BaseDataGenerator(ABC):
         temperature: float,
         theta: int,
         **kwargs,
-    ) -> torch.DoubleTensor:
+    ) -> Float[torch.Tensor, "m"]:
         """Generate data at given temperature and theta."""
         ...
 

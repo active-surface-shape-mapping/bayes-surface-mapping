@@ -18,14 +18,12 @@ class ThresholdedDerivativesDiagramGenerator(BaseDiagramGenerator):
     ):
         self.model = model
         self.likelihood = likelhood
-        self.min_temp = min_temp
-        self.max_temp = max_temp
         self.n_theta = n_theta
         self.n_temp_grid = n_temp_grid
         self.temp_grid = torch.linspace(
-            min_temp, max_temp, n_temp_grid, dtype=torch.double
+            0, 1, n_temp_grid, dtype=torch.double
         )
-        self.theta_grid = torch.arange(1, n_theta + 1, 1, dtype=torch.double)
+        self.theta_grid = torch.arange(0, n_theta + 1) / n_theta
         X, Y = torch.meshgrid(self.temp_grid, self.theta_grid)
         self.points = torch.vstack([X.ravel(), Y.ravel()]).T
         print(self.points.shape)
@@ -33,7 +31,7 @@ class ThresholdedDerivativesDiagramGenerator(BaseDiagramGenerator):
         self.distribution = torch.distributions.Normal(
             self.pred.mean, self.pred.variance.sqrt()
         )
-        self.starts = torch.linspace(min_temp, max_temp, n_starts)
+        self.starts = torch.linspace(0.0, 1.0, n_starts)
         self.ddt_threshold = ddt_threshold
         self.d2dt2_threshold = d2dt2_threshold
 

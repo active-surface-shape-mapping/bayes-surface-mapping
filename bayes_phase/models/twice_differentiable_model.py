@@ -12,9 +12,6 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         self,
         train_x,
         train_y,
-        min_temp: float,
-        max_temp: float,
-        n_theta: int,
         base_kernel: [MaternKernelWithGrad | RBFKernelWithGrad],
         mean_module: Optional[gpytorch.means.Mean] = None,
     ):
@@ -674,3 +671,6 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
             if loops == max_loops:
                 print(f"EP failed to converge after {max_loops} iterations")
                 return mu_vec, Sigma
+            
+    def transform_inputs(self, X):
+        return X

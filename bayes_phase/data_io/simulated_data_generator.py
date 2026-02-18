@@ -1,4 +1,5 @@
 from typing import Sequence, Literal
+from jaxtyping import Float
 from pathlib import Path
 import numpy as np
 import torch
@@ -28,7 +29,7 @@ class SimulatedDataGenerator(BaseDataGenerator):
         theta: int,
         interpolation: Literal["linear", "nearest", "none"] = "linear",
         **kwargs,
-    ) -> torch.DoubleTensor:
+    ) -> Float[torch.Tensor, "m"]:
         """'Measure' an observation from the prerecorded data.
 
         Uses `interpolation` to select between linear, nearest-neighbor, and no interpolation for the 'temp_in_K' index.
@@ -51,7 +52,6 @@ class SimulatedDataGenerator(BaseDataGenerator):
             result = None
             if interpolation == "linear":
                 # Find closest two temperatures:
-                t0_idx = np.abs(self.temperatures - temperature).argmin()
                 idxs = np.argpartition(np.abs(self.temperatures - temperature), 1)
                 t0_idx, t1_idx = idxs[0], idxs[1]
                 t0, t1 = self.temperatures[t0_idx], self.temperatures[t1_idx]
@@ -61,10 +61,10 @@ class SimulatedDataGenerator(BaseDataGenerator):
                 if delta == 0.0:
                     raise ValueError((t0_idx, t0, t1_idx, t1))
                 alpha = (t1 - temperature) / delta
-                array0 = torch.DoubleTensor(
+                array0 = torch.tensor(
                     self.data.filter(pl.col("temp_in_K") == t0)[f"θ_{theta}"]
                 )
-                array1 = torch.DoubleTensor(
+                array1 = torch.tensor(
                     self.data.filter(pl.col("temp_in_K") == t1)[f"θ_{theta}"]
                 )
                 result = alpha * array0 + (1.0 - alpha) * array1
@@ -72,11 +72,11 @@ class SimulatedDataGenerator(BaseDataGenerator):
                 temperature = self.temperatures[
                     np.abs(self.temperatures - temperature).argmin()
                 ]
-                result = torch.DoubleTensor(
+                result = torch.tensor(
                     self.data.filter(pl.col("temp_in_K") == temperature)[f"θ_{theta}"]
                 )
             else:
-                result = torch.DoubleTensor(
+                result = torch.tensor(
                     self.data.filter(pl.col("temp_in_K") == temperature)[f"θ_{theta}"]
                 )
             if result.numel() != self.n_samples:
