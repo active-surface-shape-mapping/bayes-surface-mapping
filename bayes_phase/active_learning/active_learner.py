@@ -2,7 +2,7 @@ from jaxtyping import Float, Int
 import torch
 
 from bayes_phase.active_learning.config import ActiveLearnerConfig
-from bayes_phase.data_io import BaseDataGenerator, SyntheticDataGenerator
+from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
 from bayes_phase.models import TwiceDifferentiableModel
 
 
@@ -30,7 +30,7 @@ class ActiveLearner:
             self._run_callbacks()
 
     def _init_dataset(self) -> BaseDataGenerator:
-        return SyntheticDataGenerator(self.config.dataset_paths)
+        return SimulatedDataGenerator(self.config.dataset_paths)
 
     def _init_train_data(
         self,
