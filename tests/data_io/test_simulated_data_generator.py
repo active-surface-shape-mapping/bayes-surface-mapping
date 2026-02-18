@@ -60,6 +60,7 @@ def test_simulated_data_generator_transform_untransform():
             "data/111_Cv_run3.arrow",
         ]
     )
+    # Forward:
     x = torch.distributions.Uniform(
         torch.Tensor([oracle.min_temp, oracle.min_theta]),
         torch.Tensor([oracle.max_temp, oracle.max_theta]),
@@ -68,3 +69,11 @@ def test_simulated_data_generator_transform_untransform():
     assert ((u >= 0.0) & (u <= 1.0)).all()
     x2 = oracle.untransform_inputs(u)
     assert x.allclose(x2)
+
+    # Reverse:
+    u = torch.distributions.Uniform(torch.tensor(0.0), torch.tensor(1.0)).sample((11, 2))
+    x = oracle.untransform_inputs(u)
+    assert ((x[:, 0] >= oracle.min_temp) & (x[:, 0] <= oracle.max_temp)).all()
+    assert ((x[:, 1] >= oracle.min_theta) & (x[:, 1] <= oracle.max_theta)).all()
+    u2 = oracle.transform_inputs(x)
+    assert u.allclose(u2)

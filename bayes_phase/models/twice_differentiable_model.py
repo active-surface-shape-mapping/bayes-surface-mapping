@@ -3,10 +3,9 @@ import torch
 from typing import Literal, Optional
 from .kernels import MaternKernelWithGrad, RBFKernelWithGrad
 from jaxtyping import Float
-from bayes_phase.models.base_model import BaseModel
 
 
-class TwiceDifferentiableModel(gpytorch.models.ExactGP, BaseModel):
+class TwiceDifferentiableModel(gpytorch.models.ExactGP):
     """Based on https://docs.gpytorch.ai/en/v1.13/examples/08_Advanced_Usage/Simple_GP_Regression_Derivative_Information_1d.html"""
 
     def __init__(
@@ -23,11 +22,8 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP, BaseModel):
         likelihood = gpytorch.likelihoods.GaussianLikelihood(
             noise_prior=None,  # gpytorch.priors.LogNormalPrior(-2, 1)
         )
-        BaseModel.__init__(self, min_temp, max_temp, n_theta)
         super(TwiceDifferentiableModel, self).__init__(
-            self.transform_inputs(
-                train_x, min_temp=min_temp, max_temp=max_temp, n_theta=n_theta
-            ),
+            train_x,
             train_y,
             likelihood,
         )

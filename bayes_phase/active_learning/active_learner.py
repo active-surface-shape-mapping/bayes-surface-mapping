@@ -10,8 +10,7 @@ class ActiveLearner:
     def __init__(self, config: ActiveLearnerConfig):
         self.config = config
         self.data_generator = self._init_dataset()
-        self.train_temp, self.train_theta, self.train_y_orig = self._init_train_data()
-        self.train_x = self._transform_inputs(self.train_temp, self.train_theta)
+        self.train_x, self.train_y_orig = self._init_train_data()
         self.train_y, self._y_mean, self._y_std = self._normalize_y(self.train_y_orig)
         self.model = self._init_model()
 
@@ -20,9 +19,8 @@ class ActiveLearner:
             # Fit surrogate model:
             self._fit_model()
             # Acquire points:
-            next_temp, next_theta, next_y = self._acquire()
+            next_x, next_y = self._acquire()
             # Update training data:
-            next_x = self._transform_inputs(next_temp, next_theta)
             self.train_x = torch.vstack([self.train_x, next_x])
             self.train_y_orig = torch.vstack([self.train_y_orig, next_y])
             self.train_y = self._normalize_y(self.train_y_orig)
@@ -35,29 +33,23 @@ class ActiveLearner:
     def _init_train_data(
         self,
     ) -> tuple[
-        Float[torch.Tensor, "n 1"],
-        Float[torch.Tensor, "n 1"],
+        Float[torch.Tensor, "n 2"],
         Float[torch.Tensor, "n 1"],
     ]:
         if self.config.init_data_strategy == "Sobol":
+            # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
                 dimension=2, scramble=True, seed=self.config.init.seed
             )
             init_x = engine.draw(self.config.init.n_points)
-            init_temp = (
-                self.data_generator.temp_range * init_x[:, 0]
-                + self.data_generator.min_temp
-            ).reshape((-1, 1))
-            init_theta = (
-                torch.round(
-                    self.data_generator.theta_range * init_x[:, 1]
-                    + self.data_generator.min_theta
-                )
-                .int()
-                .reshape((-1, 1))
+            # Transform to temperature, theta domain and quantize theta:
+            init_t = self.data_generator.untransform_inputs(init_x)
+            init_t[:, 1] = round(init_t[:, 1])
+            init_x_quantized = self.data_generator.transform_inputs(
+                torch.hstack([init_t[:, 0:1], init_theta[:, 1:-1]])
             )
-            init_y = self.data_generator.measure(init_temp, init_theta)
-            return init_temp, init_theta, init_y
+            init_y = self.data_generator.measure_uniform(init_x)
+            return init_x, init_y
         else:
             raise NotImplementedError(
                 f"Unknown init_data_strategy {self.config.init_data_strategy}"
@@ -70,9 +62,8 @@ class ActiveLearner:
     def _acquire(
         self,
     ) -> tuple[
-        Float[torch.Tensor, "1 1"],
-        Float[torch.Tensor, "1 1"],
-        Float[torch.Tensor, "1 1"],
+        Float[torch.Tensor, "n 2"],
+        Float[torch.Tensor, "n 1"],
     ]: ...
 
     def _transform_inputs(
