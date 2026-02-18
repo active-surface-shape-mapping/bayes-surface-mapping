@@ -19,7 +19,6 @@ class SimulationOracle:
         temperature: float,
         theta: int,
         interpolation: Literal["linear", "nearest", "none"] = "linear",
-        check_lengths: bool = True,
     ) -> torch.DoubleTensor:
         """'Measure' an observation from the prerecorded data.
 
@@ -42,19 +41,21 @@ class SimulationOracle:
         try:
             result = None
             if interpolation == "linear":
-                t1, t2 = sorted(self.temperatures, key=lambda t: abs(t - temperature))[
-                    :2
-                ]
-                t1, t2 = min(t1, t2), max(t1, t2)
-                delta = t2 - t1
-                alpha = (t2 - temperature) / delta
+                # Find closest two temperatures:
+                t0_idx = np.abs(self.temperatures - temperature).argmin()
+                t1_idx = np.argpartition(np.abs(self.temperatures - temperature), 1)[1]
+                t0, t1 = self.temperatures[t0_idx], self.temperatures[t1_idx]
+                t0, t1 = min(t0, t1), max(t0, t1)
+                # Linearly interpolate between them:
+                delta = t1 - t0
+                alpha = (t1 - temperature) / delta
+                array0 = torch.DoubleTensor(
+                    self.data.filter(pl.col("temp_in_K") == t0)[f"θ_{theta}"]
+                )
                 array1 = torch.DoubleTensor(
                     self.data.filter(pl.col("temp_in_K") == t1)[f"θ_{theta}"]
                 )
-                array2 = torch.DoubleTensor(
-                    self.data.filter(pl.col("temp_in_K") == t2)[f"θ_{theta}"]
-                )
-                result = alpha * array1 + (1.0 - alpha) * array2
+                result = alpha * array0 + (1.0 - alpha) * array1
             elif interpolation == "nearest":
                 temperature = self.temperatures[
                     np.abs(self.temperatures - temperature).argmin()
