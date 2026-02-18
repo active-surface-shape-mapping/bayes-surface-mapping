@@ -6,7 +6,7 @@ import polars as pl
 from bayes_phase.data_io import BaseDataGenerator, read_data
 
 
-class SyntheticDataGenerator(BaseDataGenerator):
+class SimulatedDataGenerator(BaseDataGenerator):
     """An oracle that mocks heat capacity simulations using prerecorded data."""
 
     def __init__(
@@ -52,11 +52,14 @@ class SyntheticDataGenerator(BaseDataGenerator):
             if interpolation == "linear":
                 # Find closest two temperatures:
                 t0_idx = np.abs(self.temperatures - temperature).argmin()
-                t1_idx = np.argpartition(np.abs(self.temperatures - temperature), 1)[1]
+                idxs = np.argpartition(np.abs(self.temperatures - temperature), 1)
+                t0_idx, t1_idx = idxs[0], idxs[1]
                 t0, t1 = self.temperatures[t0_idx], self.temperatures[t1_idx]
                 t0, t1 = min(t0, t1), max(t0, t1)
                 # Linearly interpolate between them:
                 delta = t1 - t0
+                if delta == 0.0:
+                    raise ValueError((t0_idx, t0, t1_idx, t1))
                 alpha = (t1 - temperature) / delta
                 array0 = torch.DoubleTensor(
                     self.data.filter(pl.col("temp_in_K") == t0)[f"θ_{theta}"]
