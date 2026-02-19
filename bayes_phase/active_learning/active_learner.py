@@ -1,29 +1,44 @@
 from jaxtyping import Float, Int
 import torch
+import gpytorch
+from botorch.fit import fit_gpytorch_mll
 
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
 from bayes_phase.models import TwiceDifferentiableModel
+from bayes_phase.models import kernels
+from bayes_phase.active_learning import callbacks
 
 
 class ActiveLearner:
     def __init__(self, config: ActiveLearnerConfig):
         self.config = config
         self.data_generator = self._init_dataset()
-        self.train_x, self.train_y_orig = self._init_train_data()
+        self.train_x, self.train_y_orig, self.train_y_sigma = self._init_train_data()
         self.train_y, self._y_mean, self._y_std = self._normalize_y(self.train_y_orig)
         self.model = self._init_model()
+        self._i = 0
 
-    def fit(self):
+    def optimize(self):
         for i in range(self.config.n_iters):
+            self._i = i
             # Fit surrogate model:
             self._fit_model()
             # Acquire points:
-            next_x, next_y = self._acquire()
+            self.next_x, next_y, self.next_y_sigma = self._acquire()
+            self.next_y = (
+                next_y - self._y_mean
+            ) / self._y_std  # Transform to current y-space
             # Update training data:
-            self.train_x = torch.vstack([self.train_x, next_x])
-            self.train_y_orig = torch.vstack([self.train_y_orig, next_y])
-            self.train_y = self._normalize_y(self.train_y_orig)
+            self.train_x = torch.vstack([self.train_x, self.next_x])
+            self.train_y_orig = torch.vstack([self.train_y_orig, self.next_y])
+            self.train_y, self._y_mean, self._y_std = self._normalize_y(
+                self.train_y_orig
+            )
+            print(self.train_y.ravel())
+            print(self.train_y.ravel().mean())
+            print(self.train_y.ravel().std())
+            self.model.set_train_data(self.train_x, self.train_y.ravel(), strict=False)
             # Run callbacks, e.g. for logging:
             self._run_callbacks()
 
@@ -35,36 +50,58 @@ class ActiveLearner:
     ) -> tuple[
         Float[torch.Tensor, "n 2"],
         Float[torch.Tensor, "n 1"],
+        Float[torch.Tensor, "n 1"],
     ]:
-        if self.config.init_data_strategy == "Sobol":
+        if self.config.init_data_strategy == "sobol":
             # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
-                dimension=2, scramble=True, seed=self.config.init.seed
+                dimension=2, scramble=True, seed=self.config.init_seed
             )
-            init_x = engine.draw(self.config.init.n_points)
-            # Transform to temperature, theta domain and quantize theta:
-            init_t = self.data_generator.untransform_inputs(init_x)
-            init_t[:, 1] = round(init_t[:, 1])
-            init_x_quantized = self.data_generator.transform_inputs(
-                torch.hstack([init_t[:, 0:1], init_theta[:, 1:-1]])
-            )
-            init_y = self.data_generator.measure_uniform(init_x)
-            return init_x, init_y
+            init_x = engine.draw(self.config.init_n_points)
+            init_x_quantized = self._quantize_theta(init_x)
+            init_y_mean, init_y_sigma = self._observe(init_x_quantized)
+            return init_x_quantized, init_y_mean, init_y_sigma
         else:
             raise NotImplementedError(
                 f"Unknown init_data_strategy {self.config.init_data_strategy}"
             )
 
-    def _init_model(self) -> TwiceDifferentiableModel: ...
+    def _init_model(self) -> TwiceDifferentiableModel:
+        MeanModuleClass = getattr(gpytorch.means, self.config.mean_module)
+        mean_module = MeanModuleClass(**self.config.mean_module_kwargs)
+        BaseKernelClass = getattr(kernels, self.config.base_kernel)
+        base_kernel = BaseKernelClass(**self.config.base_kernel_kwargs)
+        return TwiceDifferentiableModel(
+            self.train_x, self.train_y, base_kernel, mean_module
+        )
 
-    def _fit_model(self): ...
+    def _fit_model(self):
+        mll = gpytorch.mlls.ExactMarginalLogLikelihood(
+            self.model.likelihood,
+            self.model,
+        )
+        fit_gpytorch_mll(mll)
 
     def _acquire(
         self,
     ) -> tuple[
         Float[torch.Tensor, "n 2"],
         Float[torch.Tensor, "n 1"],
-    ]: ...
+        Float[torch.Tensor, "n 1"],
+    ]:
+        if self.config.acquisition_function == "random":
+            next_x = torch.distributions.Uniform(
+                torch.tensor(0.0), torch.tensor(1.0)
+            ).sample((1, 2))
+            next_x_quantized = self._quantize_theta(next_x)
+            next_y_mean, next_y_sigma = self._observe(next_x_quantized)
+            return next_x_quantized, next_y_mean, next_y_sigma
+        elif self.config.acquisition_function == "mutual_information":
+            raise NotImplementedError("Mutual information not implemented yet.")
+        else:
+            raise NotImplementedError(
+                f"Unrecognized acquisition function {self.config.acquisition_function}"
+            )
 
     def _transform_inputs(
         self,
@@ -96,4 +133,24 @@ class ActiveLearner:
         """Unnormalize input y by mean and standard deviation."""
         return (y_transformed * std) + mean
 
-    def _run_callbacks(self): ...
+    def _quantize_theta(
+        self, u: Float[torch.Tensor, "n 2"]
+    ) -> Float[torch.Tensor, "n 2"]:
+        """Take unit square input and quantize its theta values."""
+        x = self.data_generator.untransform_inputs(u)
+        x[:, 1] = x[:, 1].round()
+        u_quantized = self.data_generator.transform_inputs(x)
+        return u_quantized
+
+    def _run_callbacks(self):
+        for callback in self.config.callbacks:
+            fn = getattr(callbacks, callback)
+            fn(self)
+
+    def _observe(
+        self, u: Float[torch.Tensor, "n 2"]
+    ) -> tuple[Float[torch.Tensor, "n 1"], Float[torch.Tensor, "n 1"]]:
+        y = self.data_generator.measure_uniform(u)
+        if self.config.use_log_transform:
+            y = y.log()
+        return y.mean(-1).reshape((-1, 1)), y.std(-1).reshape((-1, 1))

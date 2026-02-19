@@ -1,13 +1,16 @@
 from abc import ABC, abstractmethod
 from jaxtyping import Float, Int
 import torch
-import numpy as np
 
 
 class BaseDataGenerator(ABC):
-    def measure_uniform(self, u: Float[torch.Tensor, "n 2"], **kwargs) -> Float[torch.Tensor, "n m"]:
+    def measure_uniform(
+        self, u: Float[torch.Tensor, "n 2"], **kwargs
+    ) -> Float[torch.Tensor, "n m"]:
         if (u.ndim != 2) or (u.shape[1] != 2):
-            raise ValueError(f"Expected u to have shape (n, 2) but got u with shape {u.shape}")
+            raise ValueError(
+                f"Expected u to have shape (n, 2) but got u with shape {u.shape}"
+            )
         x = self.untransform_inputs(u)
         return self.measure(x[:, 0], x[:, 1], **kwargs)
 
@@ -47,13 +50,13 @@ class BaseDataGenerator(ABC):
 
     @property
     @abstractmethod
-    def min_theta(self) -> float:
+    def min_theta(self) -> int:
         """Return the minimum theta bound."""
         ...
 
     @property
     @abstractmethod
-    def max_theta(self) -> float:
+    def max_theta(self) -> int:
         """Return the maximum theta bound."""
         ...
 
@@ -70,7 +73,9 @@ class BaseDataGenerator(ABC):
         x: torch.Tensor,
     ) -> torch.Tensor:
         if (x.ndim != 2) or (x.shape[1] != 2):
-            raise ValueError(f"Expected x to have shape (n, 2) but got x with shape {x.shape}")
+            raise ValueError(
+                f"Expected x to have shape (n, 2) but got x with shape {x.shape}"
+            )
         u_temp = (x[:, 0] - self.min_temp) / self.temp_range
         u_theta = (x[:, 1] - self.min_theta) / self.theta_range
         return torch.vstack([u_temp, u_theta]).T
@@ -80,8 +85,9 @@ class BaseDataGenerator(ABC):
         u: torch.Tensor,
     ) -> torch.Tensor:
         if (u.ndim != 2) or (u.shape[1] != 2):
-            raise ValueError(f"Expected u to have shape (n, 2) but got u with shape {u.shape}")
+            raise ValueError(
+                f"Expected u to have shape (n, 2) but got u with shape {u.shape}"
+            )
         x_temp = u[:, 0] * self.temp_range + self.min_temp
         x_theta = u[:, 1] * self.theta_range + self.min_theta
         return torch.vstack([x_temp, x_theta]).T
-

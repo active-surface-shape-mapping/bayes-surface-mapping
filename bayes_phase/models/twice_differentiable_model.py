@@ -21,7 +21,7 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         )
         super(TwiceDifferentiableModel, self).__init__(
             train_x,
-            train_y,
+            train_y.ravel(),
             likelihood,
         )
         if mean_module is None:
@@ -151,11 +151,13 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
     def pred_condition_1st_deriv(
         self,
         x_test: Float[torch.Tensor, "n2 d"],  # Test points
-        x_ridge: Optional[Float[torch.Tensor, "nr d"]] = None,  # ridge points (optional)
-        maximum_locs: Optional[Float[
-            torch.Tensor, "nr"
-        ]] = None,  # Vector of indices for maxima in x_test
-        jitter: float = 1e-9
+        x_ridge: Optional[
+            Float[torch.Tensor, "nr d"]
+        ] = None,  # ridge points (optional)
+        maximum_locs: Optional[
+            Float[torch.Tensor, "nr"]
+        ] = None,  # Vector of indices for maxima in x_test
+        jitter: float = 1e-9,
     ) -> tuple[
         Float[
             torch.Tensor, "n2+nr"
@@ -172,7 +174,9 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         if x_ridge is None:
             if maximum_locs is None:
                 raise ValueError("Provide either x_ridge or maximum_locs.")
-            maximum_locs = torch.as_tensor(maximum_locs, dtype=torch.long, device=x_test.device)
+            maximum_locs = torch.as_tensor(
+                maximum_locs, dtype=torch.long, device=x_test.device
+            )
             x_ridge = x_test[maximum_locs]
         else:
             if x_ridge.ndim == 1:
@@ -284,7 +288,7 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         max_site_mu: float = 50.0,
         jitter: float = 1e-12,
         convergence_threshold: float = 0.05,
-        damped_step_size: float = 0.1,# option to damp updates https://tminka.github.io/papers/aspect/minka-aspect.pdf#:~:text=not%20always%20reach%20one,continues%20with%20the%20next%20term
+        damped_step_size: float = 0.1,  # option to damp updates https://tminka.github.io/papers/aspect/minka-aspect.pdf#:~:text=not%20always%20reach%20one,continues%20with%20the%20next%20term
         max_loops: int = 100,
     ) -> Optional[
         tuple[
@@ -300,7 +304,9 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         if x_ridge is None:
             if maximum_locs is None:
                 raise ValueError("Provide either x_ridge or maximum_locs.")
-            maximum_locs = torch.as_tensor(maximum_locs, dtype=torch.long, device=x_test.device)
+            maximum_locs = torch.as_tensor(
+                maximum_locs, dtype=torch.long, device=x_test.device
+            )
             x_ridge = x_test[maximum_locs]
         else:
             if x_ridge.ndim == 1:
@@ -312,11 +318,8 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         device = x_test.device
         dtype = x_test.dtype
 
-
         with torch.no_grad():
-            mean_1st, K_1st = self.pred_condition_1st_deriv(
-                x_test, x_ridge = x_ridge
-        )
+            mean_1st, K_1st = self.pred_condition_1st_deriv(x_test, x_ridge=x_ridge)
 
         if verbose == True:
             print(
@@ -339,17 +342,19 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         # Indices corresponding to derivatives in joint vector
         deriv_idx = torch.arange(n_test, n_total, device=device)
 
-        Sigma0 = K_1st.detach().clone() + jitter * torch.eye(n_total, device=device, dtype = dtype)
+        Sigma0 = K_1st.detach().clone() + jitter * torch.eye(
+            n_total, device=device, dtype=dtype
+        )
         Sigma = Sigma0.detach().clone()
         mu0_vec = mean_1st.detach().clone()
         mu_vec = mean_1st.detach().clone()
-        tau_tilde_vec = torch.zeros(n_total, device=device, dtype = dtype)
-        nu_tilde_vec = torch.zeros(n_total, device=device, dtype = dtype)
-        delta_tau_tilde_vec = torch.zeros(n_ridge, device=device, dtype = dtype)
-        delta_nu_tilde_vec = torch.zeros(n_ridge, device=device, dtype = dtype)
+        tau_tilde_vec = torch.zeros(n_total, device=device, dtype=dtype)
+        nu_tilde_vec = torch.zeros(n_total, device=device, dtype=dtype)
+        delta_tau_tilde_vec = torch.zeros(n_ridge, device=device, dtype=dtype)
+        delta_nu_tilde_vec = torch.zeros(n_ridge, device=device, dtype=dtype)
         # Intermediate steps for later calculations
         S0Im0 = torch.linalg.solve(Sigma0, mu0_vec)
-        I_n = torch.eye(n_total, device=device, dtype = dtype)
+        I_n = torch.eye(n_total, device=device, dtype=dtype)
 
         if verbose == True:
             print(
@@ -671,6 +676,6 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
             if loops == max_loops:
                 print(f"EP failed to converge after {max_loops} iterations")
                 return mu_vec, Sigma
-            
+
     def transform_inputs(self, X):
         return X

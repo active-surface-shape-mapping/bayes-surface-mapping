@@ -100,9 +100,9 @@ class SimulatedDataGenerator(BaseDataGenerator):
         return max_temp
 
     @property
-    def min_theta(self) -> float:
+    def min_theta(self) -> int:
         return self._min_theta
 
     @property
-    def max_theta(self) -> float:
+    def max_theta(self) -> int:
         return self._max_theta
