@@ -25,20 +25,21 @@ class ActiveLearner:
             # Fit surrogate model:
             self._fit_model()
             # Acquire points:
-            self.next_x, next_y, self.next_y_sigma = self._acquire()
-            self.next_y = (
-                next_y - self._y_mean
-            ) / self._y_std  # Transform to current y-space
+            self.next_x, self.next_y_orig, self.next_y_sigma = self._acquire()
             # Update training data:
             self.train_x = torch.vstack([self.train_x, self.next_x])
-            self.train_y_orig = torch.vstack([self.train_y_orig, self.next_y])
+            self.train_y_orig = torch.vstack([self.train_y_orig, self.next_y_orig])
             self.train_y, self._y_mean, self._y_std = self._normalize_y(
                 self.train_y_orig
             )
-            print(self.train_y.ravel())
-            print(self.train_y.ravel().mean())
-            print(self.train_y.ravel().std())
+            # Full update:
             self.model.set_train_data(self.train_x, self.train_y.ravel(), strict=False)
+            # Rank-one update:
+            # self.model(0.5 * torch.ones((1, 2)))
+            # self.model = self.model.get_fantasy_model(
+            #     self.next_x, ((self.next_y_orig - self._y_mean) / self._y_std).ravel()
+            # )
+
             # Run callbacks, e.g. for logging:
             self._run_callbacks()
 
@@ -61,6 +62,32 @@ class ActiveLearner:
             init_x_quantized = self._quantize_theta(init_x)
             init_y_mean, init_y_sigma = self._observe(init_x_quantized)
             return init_x_quantized, init_y_mean, init_y_sigma
+        if self.config.init_data_strategy == "marginal_sobol":
+            # Generate Sobol sequence on unit square
+            engine = torch.quasirandom.SobolEngine(
+                dimension=1, scramble=True, seed=self.config.init_seed
+            )
+            init_temps = []
+            init_thetas = []
+            for i in range(self.data_generator.theta_range + 1):
+                temps = engine.draw(
+                    self.config.init_n_points // (self.data_generator.theta_range + 1)
+                ).ravel()
+                thetas = (
+                    i
+                    * torch.ones(
+                        self.config.init_n_points
+                        // (self.data_generator.theta_range + 1)
+                    )
+                    / (self.data_generator.theta_range)
+                )
+                init_temps.append(temps)
+                init_thetas.append(thetas)
+            init_x = torch.vstack(
+                [torch.hstack(init_temps), torch.hstack(init_thetas)]
+            ).T
+            init_y_mean, init_y_sigma = self._observe(init_x)
+            return init_x, init_y_mean, init_y_sigma
         else:
             raise NotImplementedError(
                 f"Unknown init_data_strategy {self.config.init_data_strategy}"

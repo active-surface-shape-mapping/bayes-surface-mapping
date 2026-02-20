@@ -1,4 +1,6 @@
 acquisition_function: RANDOM
 callbacks:
   - plot
-init_n_points: 500
+init_n_points: 5
+init_data_strategy: SOBOL
+n_iters: 50

@@ -65,7 +65,7 @@ class BaseDataGenerator(ABC):
         return self.max_temp - self.min_temp
 
     @property
-    def theta_range(self) -> float:
+    def theta_range(self) -> int:
         return self.max_theta - self.min_theta
 
     def transform_inputs(

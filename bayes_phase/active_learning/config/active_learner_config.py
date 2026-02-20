@@ -22,6 +22,7 @@ def default_paths() -> list[Path]:
 
 class InitDataStrategy(StrEnum):
     SOBOL = "sobol"
+    MARGINAL_SOBOL = "marginal_sobol"
 
 
 class MeanModule(StrEnum):

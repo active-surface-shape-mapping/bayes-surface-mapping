@@ -8,10 +8,12 @@ def plot(learner: "ActiveLearner"):
     temp_grid = torch.linspace(0.0, 1.0, n_temp)
     n_theta = learner.data_generator.max_theta
     theta_grid = torch.arange(0, n_theta + 1) / (n_theta + 1)
-    x, y = torch.meshgrid(temp_grid, theta_grid)
+    x, y = torch.meshgrid(temp_grid, theta_grid, indexing="ij")
     grid = torch.stack([x.ravel(), y.ravel()]).T
     y_gt = learner.data_generator.measure_uniform(grid)
     y_gt_mean = y_gt.mean(-1)
+    if learner.config.use_log_transform:
+        y_gt_mean = y_gt_mean.log()
     y_pred = learner.model.likelihood(learner.model(grid))
     y_pred_mean = y_pred.mean * learner._y_std + learner._y_mean
     y_pred_std = y_pred.stddev * learner._y_std
