@@ -15,33 +15,36 @@ class EIG:
 
     def __init__(
         self,
-        model,
     ):
-        self.model = model
+        pass
 
     def forward(
         self, 
-        X: Float[torch.Tensor, "m d"]
+        learner: "ActiveLearner"
     ) -> Float[torch.Tensor, "m "]:
-        self.model.eval()
-        self.model.likelihood.eval()
+
+        model = learner.model
+        X = learner.cand_x
+        
+        model.eval()
+        model.likelihood.eval()
 
         with torch.no_grad():
-            _ = self.model(X)  # creates prediction_strategy caches
+            _ = model(X)  # creates prediction_strategy caches
 
         # Base entropy
-        H0 = entropy_over_representer_set(self.model, X)
+        H0 = entropy_over_representer_set(model, X)
         scores = torch.empty(X.shape[0], dtype=X.dtype, device=X.device)
 
         with torch.no_grad():
-            mean_x, _ = posterior_latent(self.model, X)
+            mean_x, _ = posterior_latent(model, X)
 
         for j in range(X.shape[0]):
             x_new = X[j:j+1]    # (1,d)
             y_new = mean_x[j:j+1].view(1,1) # (1,1); entropy/EIG does not depend on y
 
             # Fantasy model = posterior conditioned on adding (x_new, y_new)
-            fantasy = self.model.get_fantasy_model(x_new, y_new.view(-1))
+            fantasy = model.get_fantasy_model(x_new, y_new.view(-1))
 
             # Entropy after conditioning
             Hj = entropy_over_representer_set(fantasy, X)
@@ -53,6 +56,6 @@ class EIG:
         
     def __call__(
         self,
-        X: Float[torch.Tensor, "m d"],
+        learner,
     ) -> Float[torch.Tensor, "m"]:
-        return self.forward(X)
+        return self.forward(learner)
