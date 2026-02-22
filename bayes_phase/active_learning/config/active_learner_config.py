@@ -25,6 +25,11 @@ class InitDataStrategy(StrEnum):
     MARGINAL_SOBOL = "marginal_sobol"
 
 
+class CandDataStrategy(StrEnum):
+    SOBOL = "sobol"
+    MARGINAL_SOBOL = "marginal_sobol"
+
+
 class MeanModule(StrEnum):
     CONSTANT = "ConstantMean"
     ZERO = "ZeroMean"
@@ -37,6 +42,7 @@ class BaseKernel(StrEnum):
 
 class AcquisitionFunction(StrEnum):
     RANDOM = "random"
+    EIG = "eig"
     MI = "mutual_information"
 
 
@@ -49,6 +55,7 @@ class ActiveLearnerConfig:
     n_mc_samples: int = 20 # number of MC samples for acquisition function
     dataset_paths: list[Path] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
+    cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
     mean_module: MeanModule = MeanModule.CONSTANT
     mean_module_kwargs: dict[str, Any] = field(default_factory=dict)
     base_kernel: BaseKernel = BaseKernel.MATERN
