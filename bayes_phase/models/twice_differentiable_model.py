@@ -675,7 +675,7 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
             loops += 1
             if loops == max_loops:
                 print(f"EP failed to converge after {max_loops} iterations")
-                return mu_vec, Sigma
+                return None
 
     def transform_inputs(self, X):
         return X
