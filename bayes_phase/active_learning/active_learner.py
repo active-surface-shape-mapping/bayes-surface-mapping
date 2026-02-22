@@ -8,6 +8,7 @@ from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
 from bayes_phase.models import TwiceDifferentiableModel
 from bayes_phase.models import kernels
 from bayes_phase.active_learning import callbacks
+from bayes_phase.acquisition import EIG
 
 
 class ActiveLearner:
@@ -24,6 +25,9 @@ class ActiveLearner:
             self._i = i
             # Fit surrogate model:
             self._fit_model()
+            # New candidate points:
+            cand_seed = self.config.init_seed + i
+            self.cand_x = self._generate_candidates(seed=cand_seed)
             # Acquire points:
             self.next_x, self.next_y_orig, self.next_y_sigma = self._acquire()
             # Update training data:
@@ -93,6 +97,50 @@ class ActiveLearner:
                 f"Unknown init_data_strategy {self.config.init_data_strategy}"
             )
 
+    def _generate_candidates(
+        self,
+        seed,
+    ) -> tuple[
+        Float[torch.Tensor, "n 2"],
+    ]:
+        if self.config.cand_data_strategy == "sobol":
+            # Generate Sobol sequence on unit square
+            engine = torch.quasirandom.SobolEngine(
+                dimension=2, scramble=True, seed=seed
+            )
+            init_x = engine.draw(self.config.iter_n_candidates)
+            init_x_quantized = self._quantize_theta(init_x)
+            return init_x_quantized
+        if self.config.cand_data_strategy == "marginal_sobol":
+            # Generate Sobol sequence on unit square
+            engine = torch.quasirandom.SobolEngine(
+                dimension=1, scramble=True, seed=seed
+            )
+            init_temps = []
+            init_thetas = []
+            for i in range(self.data_generator.theta_range + 1):
+                temps = engine.draw(
+                    self.config.iter_n_candidates // (self.data_generator.theta_range + 1)
+                ).ravel()
+                thetas = (
+                    i
+                    * torch.ones(
+                        self.config.iter_n_candidates
+                        // (self.data_generator.theta_range + 1)
+                    )
+                    / (self.data_generator.theta_range)
+                )
+                init_temps.append(temps)
+                init_thetas.append(thetas)
+            init_x = torch.vstack(
+                [torch.hstack(init_temps), torch.hstack(init_thetas)]
+            ).T
+            return init_x
+        else:
+            raise NotImplementedError(
+                f"Unknown cand_data_strategy {self.config.cand_data_strategy}"
+            )
+
     def _init_model(self) -> TwiceDifferentiableModel:
         MeanModuleClass = getattr(gpytorch.means, self.config.mean_module)
         mean_module = MeanModuleClass(**self.config.mean_module_kwargs)
@@ -123,8 +171,20 @@ class ActiveLearner:
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
             return next_x_quantized, next_y_mean, next_y_sigma
+
+        # EIG
+        elif self.config.acquisition_function == "eig":
+            eig = EIG(model = self.model)
+            scores = eig(self.cand_x)
+            best_idx = torch.argmax(scores)
+            next_x = self.cand_x[best_idx:best_idx+1]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
+
         elif self.config.acquisition_function == "mutual_information":
             raise NotImplementedError("Mutual information not implemented yet.")
+
         else:
             raise NotImplementedError(
                 f"Unrecognized acquisition function {self.config.acquisition_function}"
