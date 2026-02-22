@@ -3,7 +3,8 @@ import math
 from jaxtyping import Float
 import gpytorch
 from bayes_phase.models import TwiceDifferentiableModel
-
+from scipy.signal import find_peaks
+import numpy as np
 
 def sample_from_gaussian(
     mean: Float[torch.Tensor, "m"],
@@ -201,3 +202,43 @@ def posterior_latent(
         )
 
     return mean_f, cov_f
+
+
+
+def find_ridges(
+    X,
+    f_vals,
+    *,
+    peak_threshold: float = 0.02,
+    distance: int = 5,
+    theta_decimals: int = 6,   # rounding tolerance for grouping theta
+):
+    device = X.device
+
+    X_np = X.detach().cpu().numpy()
+    f_np = f_vals.detach().cpu().numpy()
+
+    scale = f_np.max() - f_np.min()
+    prominence = peak_threshold * scale
+
+    temps_all = X_np[:, 0]
+    theta_all = np.round(X_np[:, 1], theta_decimals)
+
+    ridge_indices = []
+    for theta in np.unique(theta_all):
+        idx = np.where(theta_all == theta)[0]
+        if idx.size == 0:
+            continue
+
+        order = np.argsort(temps_all[idx])
+        idx_sorted = idx[order]
+        energies_sorted = f_np[idx_sorted]
+
+        peaks, _ = find_peaks(energies_sorted, prominence=prominence, distance=distance)
+        ridge_indices.extend(idx_sorted[peaks])
+
+    if not ridge_indices:
+        raise RuntimeError("No ridges found in sample.")
+
+    ridge_indices = np.asarray(ridge_indices, dtype=np.int64)
+    return torch.as_tensor(ridge_indices, device=device), X[ridge_indices]

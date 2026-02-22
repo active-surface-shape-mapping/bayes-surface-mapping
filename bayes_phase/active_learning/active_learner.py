@@ -9,6 +9,7 @@ from bayes_phase.models import TwiceDifferentiableModel
 from bayes_phase.models import kernels
 from bayes_phase.active_learning import callbacks
 from bayes_phase.acquisition import EIG
+from bayes_phase.acquisition import MUTUAL_INFORMATION
 
 
 class ActiveLearner:
@@ -174,8 +175,8 @@ class ActiveLearner:
 
         # EIG
         elif self.config.acquisition_function == "eig":
-            eig = EIG(model = self.model)
-            scores = eig(self.cand_x)
+            eig = EIG()
+            scores = eig(self)
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx:best_idx+1]
             next_y_mean, next_y_sigma = self._observe(next_x)
@@ -183,7 +184,12 @@ class ActiveLearner:
 
 
         elif self.config.acquisition_function == "mutual_information":
-            raise NotImplementedError("Mutual information not implemented yet.")
+            mi = MUTUAL_INFORMATION()
+            scores = mi(self)
+            best_idx = torch.argmax(scores)
+            next_x = self.cand_x[best_idx:best_idx+1]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
 
         else:
             raise NotImplementedError(
