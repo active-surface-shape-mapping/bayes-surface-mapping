@@ -27,7 +27,7 @@ def plot_diagrams(
 
 
 def plot(learner: "ActiveLearner"):
-    n_temp = 500
+    n_temp = 200
     temp_grid = torch.linspace(0.0, 1.0, n_temp)
     n_theta = learner.data_generator.theta_range
     theta_grid = torch.arange(0, n_theta + 1) / (n_theta)

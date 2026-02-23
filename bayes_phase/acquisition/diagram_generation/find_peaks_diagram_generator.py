@@ -14,7 +14,7 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         model: gpytorch.models.ExactGP,
         likelhood: gpytorch.likelihoods.Likelihood,
         theta_range: int,
-        n_temp_grid: int = 500,
+        n_temp_grid: int = 200,
         n_starts: int = 10,
         peak_threshold: float = 0.02,
     ):
