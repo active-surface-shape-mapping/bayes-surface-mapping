@@ -3,6 +3,10 @@ from typing import Optional
 from jaxtyping import Float
 from .acquisition_utilities import posterior_latent, entropy_over_representer_set
 
+# FIXME: Noise approach between MI and EIG in this draft may be inconsistent.
+#        Confirm whether acquisition should condition on noisy or latent values.
+#        Ensure no hidden GPyTorch prediction cache interactions.
+
 class EIG:
 
     """
