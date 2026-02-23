@@ -195,8 +195,6 @@ class ActiveLearner:
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
-        # Store acquisition scores
-
         else:
             raise NotImplementedError(
                 f"Unrecognized acquisition function {self.config.acquisition_function}"
