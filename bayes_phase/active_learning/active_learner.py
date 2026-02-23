@@ -8,6 +8,7 @@ from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
 from bayes_phase.models import TwiceDifferentiableModel
 from bayes_phase.models import kernels
 from bayes_phase.active_learning import callbacks
+from bayes_phase.acquisition import diagram_generation
 
 
 class ActiveLearner:
@@ -17,6 +18,7 @@ class ActiveLearner:
         self.train_x, self.train_y_orig, self.train_y_sigma = self._init_train_data()
         self.train_y, self._y_mean, self._y_std = self._normalize_y(self.train_y_orig)
         self.model = self._init_model()
+        self.diagram_generator = self._init_diagram_generator()
         self._i = 0
 
     def optimize(self):
@@ -34,13 +36,14 @@ class ActiveLearner:
             )
             # Full update:
             self.model.set_train_data(self.train_x, self.train_y.ravel(), strict=False)
+            assert self.model is self.diagram_generator.model
             # Rank-one update:
             # self.model(0.5 * torch.ones((1, 2)))
             # self.model = self.model.get_fantasy_model(
             #     self.next_x, ((self.next_y_orig - self._y_mean) / self._y_std).ravel()
             # )
 
-            # Run callbacks, e.g. for logging:
+            # Run callbacks, e.g. for plotting, logging, etc.:
             self._run_callbacks()
 
     def _init_dataset(self) -> BaseDataGenerator:
@@ -62,22 +65,21 @@ class ActiveLearner:
             init_x_quantized = self._quantize_theta(init_x)
             init_y_mean, init_y_sigma = self._observe(init_x_quantized)
             return init_x_quantized, init_y_mean, init_y_sigma
-        if self.config.init_data_strategy == "marginal_sobol":
-            # Generate Sobol sequence on unit square
+        elif self.config.init_data_strategy == "marginal_sobol":
+            # Generate Sobol sequences on 1-d temperature marginals
             engine = torch.quasirandom.SobolEngine(
                 dimension=1, scramble=True, seed=self.config.init_seed
             )
             init_temps = []
             init_thetas = []
-            for i in range(self.data_generator.theta_range + 1):
+            for i in range(0, self.data_generator.theta_range + 1):
                 temps = engine.draw(
-                    self.config.init_n_points // (self.data_generator.theta_range + 1)
+                    self.config.init_n_points // (self.data_generator.theta_range)
                 ).ravel()
                 thetas = (
                     i
                     * torch.ones(
-                        self.config.init_n_points
-                        // (self.data_generator.theta_range + 1)
+                        self.config.init_n_points // (self.data_generator.theta_range)
                     )
                     / (self.data_generator.theta_range)
                 )
@@ -86,6 +88,16 @@ class ActiveLearner:
             init_x = torch.vstack(
                 [torch.hstack(init_temps), torch.hstack(init_thetas)]
             ).T
+            init_y_mean, init_y_sigma = self._observe(init_x)
+            return init_x, init_y_mean, init_y_sigma
+        elif self.config.init_data_strategy == "grid":
+            # Generate uniform grid
+            n_theta = self.data_generator.theta_range
+            n_temps = self.config.init_n_points // n_theta
+            temps = torch.linspace(0.0, 1.0, n_temps)
+            thetas = torch.arange(0, n_theta + 1) / n_theta
+            X, Y = torch.meshgrid(temps, thetas, indexing="ij")
+            init_x = torch.vstack([X.ravel(), Y.ravel()]).T
             init_y_mean, init_y_sigma = self._observe(init_x)
             return init_x, init_y_mean, init_y_sigma
         else:
@@ -181,3 +193,15 @@ class ActiveLearner:
         if self.config.use_log_transform:
             y = y.log()
         return y.mean(-1).reshape((-1, 1)), y.std(-1).reshape((-1, 1))
+
+    def _init_diagram_generator(self) -> diagram_generation.BaseDiagramGenerator:
+        DiagramGeneratorClass = getattr(
+            diagram_generation, self.config.diagram_generator
+        )
+        diagram_generator = DiagramGeneratorClass(
+            self.model,
+            self.model.likelihood,
+            self.data_generator.theta_range,
+            **self.config.diagram_generator_kwargs,
+        )
+        return diagram_generator

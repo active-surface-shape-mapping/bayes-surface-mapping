@@ -17,7 +17,11 @@ class BaseDiagramGenerator(ABC):
         self,
     ) -> DiagramOutput: ...
 
+    @abstractmethod
+    def _update(self): ...
+
     def diagrams(self, n_diagrams: int) -> Iterator[DiagramOutput]:
+        self._update()
         for i in range(n_diagrams):
             yield self.generate_diagram()
 

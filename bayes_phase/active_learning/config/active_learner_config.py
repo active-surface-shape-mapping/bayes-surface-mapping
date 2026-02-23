@@ -23,10 +23,12 @@ def default_paths() -> list[Path]:
 class InitDataStrategy(StrEnum):
     SOBOL = "sobol"
     MARGINAL_SOBOL = "marginal_sobol"
+    GRID = "grid"
 
 
 class MeanModule(StrEnum):
     CONSTANT = "ConstantMean"
+    LINEAR = "LinearMean"
     ZERO = "ZeroMean"
 
 
@@ -38,6 +40,11 @@ class BaseKernel(StrEnum):
 class AcquisitionFunction(StrEnum):
     RANDOM = "random"
     MI = "mutual_information"
+
+
+class DiagramGenerator(StrEnum):
+    FIND_PEAKS = "FindPeaksDiagramGenerator"
+    SPLINE = "SplineDiagramGenerator"
 
 
 @dataclass
@@ -55,3 +62,5 @@ class ActiveLearnerConfig:
     callbacks: list[str] = field(default_factory=list)
     use_log_transform: bool = True
     base_savepath: Path = field(default_factory=timestamp_path)
+    diagram_generator: DiagramGenerator = DiagramGenerator.FIND_PEAKS
+    diagram_generator_kwargs: dict[str, Any] = field(default_factory=dict)
