@@ -20,9 +20,7 @@ class ThresholdedDerivativesDiagramGenerator(BaseDiagramGenerator):
         self.likelihood = likelhood
         self.n_theta = n_theta
         self.n_temp_grid = n_temp_grid
-        self.temp_grid = torch.linspace(
-            0, 1, n_temp_grid, dtype=torch.double
-        )
+        self.temp_grid = torch.linspace(0, 1, n_temp_grid, dtype=torch.double)
         self.theta_grid = torch.arange(0, n_theta + 1) / n_theta
         X, Y = torch.meshgrid(self.temp_grid, self.theta_grid)
         self.points = torch.vstack([X.ravel(), Y.ravel()]).T

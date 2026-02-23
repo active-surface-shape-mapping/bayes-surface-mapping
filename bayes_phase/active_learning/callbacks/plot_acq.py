@@ -113,8 +113,14 @@ def plot_acq(learner: "ActiveLearner"):
     camera = dict(eye=dict(x=-1.6, y=-1.8, z=0.8))
 
     # axis ranges (temp/theta from generator, z from posterior mean)
-    x_range = [float(learner.data_generator.min_temp), float(learner.data_generator.max_temp)]
-    y_range = [float(learner.data_generator.min_theta), float(learner.data_generator.max_theta)]
+    x_range = [
+        float(learner.data_generator.min_temp),
+        float(learner.data_generator.max_temp),
+    ]
+    y_range = [
+        float(learner.data_generator.min_theta),
+        float(learner.data_generator.max_theta),
+    ]
 
     zmin = float(z_mean.min().detach().cpu().item())
     zmax = float(z_mean.max().detach().cpu().item())

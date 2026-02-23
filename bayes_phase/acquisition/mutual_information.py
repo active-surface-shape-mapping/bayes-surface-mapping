@@ -17,15 +17,10 @@ class MutualInformation:
 
     """
 
-
     def __init__(self):
         pass
 
-    def forward(
-        self, 
-        learner: "ActiveLearner"
-    ) -> Float[torch.Tensor, "m "]:
-
+    def forward(self, learner: "ActiveLearner") -> Float[torch.Tensor, "m "]:
         model = learner.model
         X = learner.cand_x
         n_mc_samples = int(learner.config.n_mc_samples)
@@ -33,10 +28,12 @@ class MutualInformation:
         # ---- H(Y): baseline entropy at each candidate (univariate Gaussian) ----
         with torch.no_grad():
             mean_X, cov_X = posterior_latent(model, X)  # cov over f(X)
-        var_base = cov_X.diagonal().clamp_min(1e-30)   # (m,)
+        var_base = cov_X.diagonal().clamp_min(1e-30)  # (m,)
 
         # H(N(., var)) = 0.5 * log(2*pi*e*var)
-        H_base = 0.5 * torch.log(var_base) + 0.5 * math.log(2.0 * math.pi * math.e)  # (m,)
+        H_base = 0.5 * torch.log(var_base) + 0.5 * math.log(
+            2.0 * math.pi * math.e
+        )  # (m,)
 
         # ---- Sample functions to induce ridge hypotheses ----
         # f_samples: (m, S) each column is one sampled function over all candidates
@@ -86,15 +83,16 @@ class MutualInformation:
             n_used += 1
 
         if n_used == 0:
-            raise RuntimeError("MutualInformation: all MC samples failed (no ridges or EP failures).")
+            raise RuntimeError(
+                "MutualInformation: all MC samples failed (no ridges or EP failures)."
+            )
 
         H_cond_mean = H_cond_sum / float(n_used)
 
         # ---- MI per candidate ----
         scores = H_base - H_cond_mean
         return scores
-        
-        
+
     def __call__(
         self,
         learner,

@@ -17,6 +17,7 @@ def test_simulated_data_generator_init():
     assert oracle.min_theta == 1
     assert oracle.max_theta == 16
 
+
 def test_simulated_data_generator_measure():
     oracle = SimulatedDataGenerator(
         [
@@ -27,15 +28,18 @@ def test_simulated_data_generator_measure():
     )
     # Single measurement
     assert oracle.measure_single(1000.0, 7).shape == (3,)
-    
+
     # Stacked measurements
-    u = torch.distributions.Uniform(torch.tensor(0.0), torch.tensor(1.0)).sample((11, 2))
+    u = torch.distributions.Uniform(torch.tensor(0.0), torch.tensor(1.0)).sample(
+        (11, 2)
+    )
     y1 = oracle.measure_uniform(u)
     assert y1.shape == (11, 3)
     x = oracle.untransform_inputs(u)
     y2 = oracle.measure(x[:, 0], x[:, 1])
     assert y2.shape == (11, 3)
     assert y1.allclose(y2)
+
 
 def test_simulated_data_generator_interpolation():
     oracle = SimulatedDataGenerator(
@@ -72,6 +76,7 @@ def test_simulated_data_generator_interpolation():
     assert torch.allclose(a1_nearest, a1_none)
     assert torch.allclose(a3_nearest, a3_none)
 
+
 def test_simulated_data_generator_transform_untransform():
     oracle = SimulatedDataGenerator(
         [
@@ -81,17 +86,23 @@ def test_simulated_data_generator_transform_untransform():
         ]
     )
     # Forward:
-    x = torch.distributions.Uniform(
-        torch.Tensor([oracle.min_temp, oracle.min_theta]),
-        torch.Tensor([oracle.max_temp, oracle.max_theta]),
-    ).sample((10, 1)).squeeze()
+    x = (
+        torch.distributions.Uniform(
+            torch.Tensor([oracle.min_temp, oracle.min_theta]),
+            torch.Tensor([oracle.max_temp, oracle.max_theta]),
+        )
+        .sample((10, 1))
+        .squeeze()
+    )
     u = oracle.transform_inputs(x)
     assert ((u >= 0.0) & (u <= 1.0)).all()
     x2 = oracle.untransform_inputs(u)
     assert x.allclose(x2)
 
     # Reverse:
-    u = torch.distributions.Uniform(torch.tensor(0.0), torch.tensor(1.0)).sample((11, 2))
+    u = torch.distributions.Uniform(torch.tensor(0.0), torch.tensor(1.0)).sample(
+        (11, 2)
+    )
     x = oracle.untransform_inputs(u)
     assert ((x[:, 0] >= oracle.min_temp) & (x[:, 0] <= oracle.max_temp)).all()
     assert ((x[:, 1] >= oracle.min_theta) & (x[:, 1] <= oracle.max_theta)).all()

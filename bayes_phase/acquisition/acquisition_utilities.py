@@ -6,6 +6,7 @@ from bayes_phase.models import TwiceDifferentiableModel
 from scipy.signal import find_peaks
 import numpy as np
 
+
 def sample_from_gaussian(
     mean: Float[torch.Tensor, "m"],
     cov: Float[torch.Tensor, "m m"],
@@ -45,7 +46,9 @@ def sample_from_gaussian(
 
     j = float(jitter)
     if j > 0.0:
-        cov_with_jitter = cov + j*torch.eye(cov.shape[0], dtype = cov.dtype, device = cov.device)
+        cov_with_jitter = cov + j * torch.eye(
+            cov.shape[0], dtype=cov.dtype, device=cov.device
+        )
         mvn = gpytorch.distributions.MultivariateNormal(mean, cov_with_jitter)
     else:
         mvn = gpytorch.distributions.MultivariateNormal(mean, cov)
@@ -57,9 +60,8 @@ def sample_from_gaussian(
     return samples.transpose(0, 1)
 
 
-
 def entropy_mvn_from_cov(
-    K: torch.Tensor,      # (N,N)
+    K: torch.Tensor,  # (N,N)
     *,
     logdet: torch.Tensor | None = None,
 ) -> torch.Tensor:
@@ -95,18 +97,15 @@ def entropy_over_representer_set(
     return entropy_mvn_from_cov(cov)
 
 
-def append_train_data_inplace(
-    model, 
-    x_new: torch.Tensor, 
-    y_new: torch.Tensor):
+def append_train_data_inplace(model, x_new: torch.Tensor, y_new: torch.Tensor):
     """
     Append a single (x_new, y_new) to model's training data in-place.
     x_new: (d,) or (1,d)
     y_new: scalar or (1,) or (1,1)
     """
     if x_new.ndim == 1:
-        x_new = x_new.unsqueeze(0)          # (1,d)
-    y_new = y_new.reshape(-1)               # (1,)
+        x_new = x_new.unsqueeze(0)  # (1,d)
+    y_new = y_new.reshape(-1)  # (1,)
 
     X_old = model.train_inputs[0]
     y_old = model.train_targets
@@ -120,7 +119,7 @@ def append_train_data_inplace(
 
 
 def logdet_val(
-    K: torch.Tensor,                 # (n1, n1)
+    K: torch.Tensor,  # (n1, n1)
     *,
     jitter: float = 0,
 ) -> torch.Tensor:
@@ -148,7 +147,6 @@ def logdet_val(
     j = float(jitter)
     Kj = K + j * I
     L = torch.linalg.cholesky(Kj)
-
 
     # logdet(K) = 2 * sum(log(diag(L)))
     logdet = 2.0 * torch.log(torch.diagonal(L)).sum()
@@ -197,12 +195,9 @@ def posterior_latent(
     cov_f = cov_full[:N, :N].contiguous()
 
     if jitter > 0.0:
-        cov_f = cov_f + jitter * torch.eye(
-            N, dtype=cov_f.dtype, device=cov_f.device
-        )
+        cov_f = cov_f + jitter * torch.eye(N, dtype=cov_f.dtype, device=cov_f.device)
 
     return mean_f, cov_f
-
 
 
 def find_ridges(
@@ -211,7 +206,7 @@ def find_ridges(
     *,
     peak_threshold: float = 0.01,
     distance: int = 5,
-    theta_decimals: int = 6,   # rounding tolerance for grouping normalized theta
+    theta_decimals: int = 6,  # rounding tolerance for grouping normalized theta
 ):
     device = X.device
 

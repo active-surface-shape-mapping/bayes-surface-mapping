@@ -1,5 +1,4 @@
 import torch
-from typing import Optional
 from jaxtyping import Float
 from .acquisition_utilities import posterior_latent, entropy_over_representer_set
 
@@ -7,8 +6,8 @@ from .acquisition_utilities import posterior_latent, entropy_over_representer_se
 #        Confirm whether acquisition should condition on noisy or latent values.
 #        Ensure no hidden GPyTorch prediction cache interactions.
 
-class EIG:
 
+class EIG:
     """
     Class to to compute expected information gain (EIG) acquisition across a candidate set.
 
@@ -22,14 +21,10 @@ class EIG:
     ):
         pass
 
-    def forward(
-        self, 
-        learner: "ActiveLearner"
-    ) -> Float[torch.Tensor, "m "]:
-
+    def forward(self, learner: "ActiveLearner") -> Float[torch.Tensor, "m "]:
         model = learner.model
         X = learner.cand_x
-        
+
         model.eval()
         model.likelihood.eval()
 
@@ -44,8 +39,10 @@ class EIG:
             mean_x, _ = posterior_latent(model, X)
 
         for j in range(X.shape[0]):
-            x_new = X[j:j+1]    # (1,d)
-            y_new = mean_x[j:j+1].view(1,1) # (1,1); entropy/EIG does not depend on y
+            x_new = X[j : j + 1]  # (1,d)
+            y_new = mean_x[j : j + 1].view(
+                1, 1
+            )  # (1,1); entropy/EIG does not depend on y
 
             # Fantasy model = posterior conditioned on adding (x_new, y_new)
             fantasy = model.get_fantasy_model(x_new, y_new.view(-1))
@@ -57,7 +54,7 @@ class EIG:
             scores[j] = H0 - Hj
 
         return scores
-        
+
     def __call__(
         self,
         learner,

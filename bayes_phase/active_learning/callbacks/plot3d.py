@@ -3,6 +3,7 @@ from pathlib import Path
 import plotly.graph_objects as go
 from bayes_phase.acquisition import find_ridges
 
+
 @torch.no_grad()
 def plot3d(learner: "ActiveLearner"):
     n_temp = 300
@@ -11,19 +12,21 @@ def plot3d(learner: "ActiveLearner"):
     temp_grid = torch.linspace(0.0, 1.0, n_temp, device=device, dtype=dtype)
     # Denormalizing using known minima/maxima in this case
     theta_vals = torch.arange(
-    learner.data_generator.min_theta,
-    learner.data_generator.max_theta + 1,
-    device=device,
-    dtype=dtype,
+        learner.data_generator.min_theta,
+        learner.data_generator.max_theta + 1,
+        device=device,
+        dtype=dtype,
     )
-    theta_grid = (theta_vals - learner.data_generator.min_theta) / learner.data_generator.theta_range
+    theta_grid = (
+        theta_vals - learner.data_generator.min_theta
+    ) / learner.data_generator.theta_range
     x, y = torch.meshgrid(temp_grid, theta_grid, indexing="ij")
     grid = torch.stack([x.ravel(), y.ravel()]).T
 
     y_pred = learner.model.likelihood(learner.model(grid))
     y_pred_mean = (y_pred.mean * learner._y_std + learner._y_mean).reshape(-1)
-    y_pred_std  = (y_pred.stddev * learner._y_std).reshape(-1)
-    
+    y_pred_std = (y_pred.stddev * learner._y_std).reshape(-1)
+
     extent = (
         learner.data_generator.min_temp,
         learner.data_generator.max_temp,
@@ -42,7 +45,6 @@ def plot3d(learner: "ActiveLearner"):
     T_raw = grid_raw[:, 0]
     cov_raw = grid_raw[:, 1]
 
-
     # vertical offset for plotting ridge points
     z_offset = 0.05
 
@@ -52,7 +54,7 @@ def plot3d(learner: "ActiveLearner"):
     try:
         ridge_idx, ridge_u = find_ridges(grid, y_pred_mean)
         ridge_raw = learner.data_generator.untransform_inputs(ridge_u.detach())
-        ridge_z = y_pred_mean[ridge_idx] + z_offset # Visual offset
+        ridge_z = y_pred_mean[ridge_idx] + z_offset  # Visual offset
     except Exception:
         ridge_raw = None
         ridge_z = None
@@ -66,11 +68,10 @@ def plot3d(learner: "ActiveLearner"):
     }.get(method, "white")
     # title text
     METHOD_LABEL = {
-    "mutual_information": "Mutual Information",
-    "eig": "EIG",
-    "random": "Random Sampling",
+        "mutual_information": "Mutual Information",
+        "eig": "EIG",
+        "random": "Random Sampling",
     }
-
 
     n_init = int(learner.config.init_n_points)
     xs_all = learner.data_generator.untransform_inputs(learner.train_x.detach())
@@ -80,7 +81,9 @@ def plot3d(learner: "ActiveLearner"):
     xs = xs_all[n_init:-1]
     z_samp = z_all[n_init:-1]
     new_x_u = learner.next_x.detach()  # (1,2) in unit space
-    new_xs = learner.data_generator.untransform_inputs(new_x_u)  # raw coords for plotting
+    new_xs = learner.data_generator.untransform_inputs(
+        new_x_u
+    )  # raw coords for plotting
 
     # posterior mean at next_x (denormalized to original y-scale)
     z_next = learner.next_y_orig.detach().reshape(-1)
@@ -107,7 +110,9 @@ def plot3d(learner: "ActiveLearner"):
                 colorbar=dict(title=z_label),
             ),
             showlegend=False,
-            hovertemplate="Temp: %{x}<br>Theta: %{y}<br>" + z_label + ": %{z}<extra></extra>",
+            hovertemplate="Temp: %{x}<br>Theta: %{y}<br>"
+            + z_label
+            + ": %{z}<extra></extra>",
         )
     )
 
@@ -120,7 +125,9 @@ def plot3d(learner: "ActiveLearner"):
         # halo (white)
         fig.add_trace(
             go.Scatter3d(
-                x=rx, y=ry, z=rz,
+                x=rx,
+                y=ry,
+                z=rz,
                 mode="markers",
                 marker=dict(size=9, color="white", opacity=1.0),
                 hovertemplate=None,
@@ -132,7 +139,9 @@ def plot3d(learner: "ActiveLearner"):
         # core (method color)
         fig.add_trace(
             go.Scatter3d(
-                x=rx, y=ry, z=rz,
+                x=rx,
+                y=ry,
+                z=rz,
                 mode="markers",
                 marker=dict(size=6, color=ridge_color, opacity=1.0),
                 hovertemplate="Ridge Point - Temp: %{x}<br>Theta: %{y}<br>",
@@ -150,7 +159,9 @@ def plot3d(learner: "ActiveLearner"):
                 mode="markers",
                 marker=dict(symbol="x", size=4, color="black", opacity=1.0),
                 showlegend=False,
-                hovertemplate="Sampled Point - Temp: %{x}<br>Theta: %{y}<br>" + z_label + ": %{z}<extra></extra>",
+                hovertemplate="Sampled Point - Temp: %{x}<br>Theta: %{y}<br>"
+                + z_label
+                + ": %{z}<extra></extra>",
             )
         )
 
@@ -163,7 +174,9 @@ def plot3d(learner: "ActiveLearner"):
             mode="markers",
             marker=dict(symbol="x", size=5, color="orange", opacity=1.0),
             showlegend=False,
-            hovertemplate="Temp: %{x}<br>Theta: %{y}<br>" + z_label + ": %{z}<extra></extra>",
+            hovertemplate="Temp: %{x}<br>Theta: %{y}<br>"
+            + z_label
+            + ": %{z}<extra></extra>",
         )
     )
 
@@ -193,4 +206,3 @@ def plot3d(learner: "ActiveLearner"):
     # save
     fig.write_html(str(savepath_html), include_plotlyjs=True, full_html=True)
     fig.write_image(str(savepath_png), width=1600, height=900, scale=2)
-
