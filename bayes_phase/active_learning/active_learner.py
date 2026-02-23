@@ -22,11 +22,6 @@ class ActiveLearner:
         self.model = self._init_model()
         self.diagram_generator = self._init_diagram_generator()
         self._i = 0
-        # Update savepath to include name of acquisition function (for easy bookkeeping)
-        self.config.base_savepath = (
-            self.config.base_savepath.parent
-            / f"{self.config.base_savepath.name}_{self.config.acquisition_function}"
-        )
 
     def optimize(self):
         for i in range(self.config.n_iters):

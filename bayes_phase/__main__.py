@@ -10,6 +10,7 @@ from bayes_phase.active_learning.active_learner import (
 parser = ArgumentParser()
 parser.add_argument("--config", "-c", type=Path, help="The path to the config file.")
 if __name__ == "__main__":
+    # Get configuration
     args = parser.parse_args()
     schema = OmegaConf.structured(ActiveLearnerConfig)
     if args.config is not None:
@@ -17,6 +18,18 @@ if __name__ == "__main__":
         config = OmegaConf.merge(schema, conf)
     else:
         config = schema
+
+    # Update savepath to include name of acquisition function (for easy bookkeeping)
+    base_savepath = Path(config.base_savepath)
+    config.base_savepath = str(
+        base_savepath.parent / f"{base_savepath.name}_{config.acquisition_function}"
+    )
+    # Save copy of config
+    Path(config.base_savepath).mkdir(exist_ok=True, parents=True)
+    with open(Path(config.base_savepath) / "config.yaml", "w") as fp:
+        OmegaConf.save(config=config, f=fp.name)
+
+    # Build active learner and run it
     assert isinstance(config, DictConfig)
     learner = ActiveLearner(config)
     learner.optimize()
