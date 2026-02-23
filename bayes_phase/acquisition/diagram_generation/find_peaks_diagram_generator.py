@@ -2,21 +2,22 @@ from bayes_phase.acquisition.diagram_generation import BaseDiagramGenerator
 import gpytorch
 import torch
 from scipy.signal import find_peaks
-import matplotlib.pyplot as plt
+from typing import Optional
 
 from .base_diagram_generator import DiagramOutput
 from bayes_phase.utils import eval_context
+from bayes_phase.data_io.base_data_generator import BaseDataGenerator
 
 
 class FindPeaksDiagramGenerator(BaseDiagramGenerator):
     def __init__(
         self,
-        model: gpytorch.models.ExactGP,
+        model: gpytorch.models.ExactGP | BaseDataGenerator,
         likelhood: gpytorch.likelihoods.Likelihood,
         theta_range: int,
         n_temp_grid: int = 200,
         n_starts: int = 10,
-        peak_threshold: float = 0.05,
+        peak_threshold: float = 0.1,
     ):
         self.model = model
         self.likelihood = likelhood
@@ -36,10 +37,24 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
             self.pred.mean, self.pred.covariance_matrix
         )
 
-    def generate_diagram(self) -> DiagramOutput:
-        sample = self.distribution.sample().reshape(
-            (self.n_temp_grid, self.n_theta_grid)
-        )
+    def generate_diagram(
+        self,
+        data_generator: Optional[BaseDataGenerator] = None,
+        use_log_transform: bool = True,
+        **kwargs,
+    ) -> DiagramOutput:
+        if data_generator is not None:  # Use ground-truth data
+            sample = (
+                data_generator.measure_uniform(self.points)
+                .mean(-1)
+                .reshape((self.n_temp_grid, self.n_theta_grid))
+            )
+            if use_log_transform:
+                sample = sample.log()
+        else:
+            sample = self.distribution.sample().reshape(
+                (self.n_temp_grid, self.n_theta_grid)
+            )
         m, _ = sample.shape
         peak_locations = []
         for i, row in enumerate(sample.T):
@@ -48,13 +63,6 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
             temps = self.temp_grid[peaks]
             vals = row[peaks]
             thetas = self.theta_grid[i].tile(temps.numel())
-            if (i == 4) and False:
-                fig, ax = plt.subplots(1, 1)
-                ax.plot(row.detach())
-                ax.set_title(f"Theta={i + 1}")
-                ax.plot(peaks, vals.detach(), "bo")
-                plt.show(block=True)
-                plt.close(fig)
             peak_locations.append(torch.stack((temps, thetas)).T)
 
         peaks = torch.vstack(peak_locations)

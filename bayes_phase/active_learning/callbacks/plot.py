@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
     DiagramOutput,
@@ -11,7 +11,10 @@ from bayes_phase.utils import eval_context
 
 
 def plot_diagrams(
-    learner: "ActiveLearner", diagrams: Iterator[DiagramOutput], ax: Axes
+    learner: "ActiveLearner",
+    diagrams: Iterator[DiagramOutput],
+    ax: Axes,
+    color: Optional[str] = None,
 ):
     for diagram, sample in diagrams:
         # x = (
@@ -23,7 +26,7 @@ def plot_diagrams(
         #     + learner.data_generator.min_theta
         # )
         xys = learner.data_generator.untransform_inputs(diagram)
-        ax.scatter(xys[:, 0], xys[:, 1], marker="*", s=100)
+        ax.scatter(xys[:, 0], xys[:, 1], marker="|", s=200, color=color)
 
 
 def plot(learner: "ActiveLearner"):
@@ -75,9 +78,14 @@ def plot(learner: "ActiveLearner"):
 
     savepath.parent.mkdir(exist_ok=True, parents=True)
 
-    # Diagram
+    # Plot phase diagram boundaries
+    gt_diagrams = learner.diagram_generator.diagrams(
+        10, data_generator=learner.data_generator
+    )
+    plot_diagrams(learner, gt_diagrams, ax[0, 0], color="red")
     diagrams = learner.diagram_generator.diagrams(10)
     plot_diagrams(learner, diagrams, ax[0, 1])
+
     plt.tight_layout()
     plt.savefig(savepath, dpi=100)
     plt.close()

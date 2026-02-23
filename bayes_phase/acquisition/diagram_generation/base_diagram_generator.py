@@ -20,10 +20,10 @@ class BaseDiagramGenerator(ABC):
     @abstractmethod
     def _update(self): ...
 
-    def diagrams(self, n_diagrams: int) -> Iterator[DiagramOutput]:
+    def diagrams(self, n_diagrams: int, **kwargs) -> Iterator[DiagramOutput]:
         self._update()
         for i in range(n_diagrams):
-            yield self.generate_diagram()
+            yield self.generate_diagram(**kwargs)
 
     def _normalize_peaks(
         self,
