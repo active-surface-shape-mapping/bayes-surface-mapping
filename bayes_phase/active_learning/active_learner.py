@@ -10,7 +10,7 @@ from bayes_phase.models import kernels
 from bayes_phase.active_learning import callbacks
 from bayes_phase.acquisition import diagram_generation
 from bayes_phase.acquisition import EIG
-from bayes_phase.acquisition import MUTUAL_INFORMATION
+from bayes_phase.acquisition import MutualInformation
 
 
 class ActiveLearner:
@@ -204,7 +204,7 @@ class ActiveLearner:
 
         # Mutual information
         elif self.config.acquisition_function == "mutual_information":
-            mi = MUTUAL_INFORMATION()
+            mi = MutualInformation()
             scores = mi(self)
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)

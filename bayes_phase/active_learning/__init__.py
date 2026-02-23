@@ -1,4 +1,4 @@
-from .active_learner import ActiveLearner
-from .config import ActiveLearnerConfig
-from ..acquisition.eig import EIG
-from ..acquisition.mutual_information import MUTUAL_INFORMATION
+from .active_learner import ActiveLearner as ActiveLearner
+from .config import ActiveLearnerConfig as ActiveLearnerConfig
+from ..acquisition.eig import EIG as EIG
+from ..acquisition.mutual_information import MutualInformation as MutualInformation

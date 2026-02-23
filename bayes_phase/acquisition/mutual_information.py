@@ -1,15 +1,14 @@
 import torch
 import math
-from typing import Optional
 from jaxtyping import Float
-from .acquisition_utilities import sample_from_gaussian, posterior_latent, entropy_over_representer_set, find_ridges
+from .acquisition_utilities import sample_from_gaussian, posterior_latent, find_ridges
 
 # FIXME: Noise approach between MI and EIG in this draft may be inconsistent.
 #        Confirm whether acquisition should condition on noisy or latent values.
 #        Ensure no hidden GPyTorch prediction cache interactions.
 
-class MUTUAL_INFORMATION:
 
+class MutualInformation:
     """
     Class to to compute mutual information between the current model's posterior and the model's posterior over ridges.
     I(X;Y) = H(Y) - H(Y|X)
