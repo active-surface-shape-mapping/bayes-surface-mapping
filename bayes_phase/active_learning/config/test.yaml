@@ -1,4 +1,4 @@
-acquisition_function: RANDOM
+acquisition_function: random
 callbacks:
   - plot
 init_n_points: 1000

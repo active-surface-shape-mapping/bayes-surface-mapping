@@ -9,6 +9,8 @@ from bayes_phase.models import TwiceDifferentiableModel
 from bayes_phase.models import kernels
 from bayes_phase.active_learning import callbacks
 from bayes_phase.acquisition import diagram_generation
+from bayes_phase.acquisition import EIG
+from bayes_phase.acquisition import MUTUAL_INFORMATION
 
 
 class ActiveLearner:
@@ -20,12 +22,20 @@ class ActiveLearner:
         self.model = self._init_model()
         self.diagram_generator = self._init_diagram_generator()
         self._i = 0
+        # Update savepath to include name of acquisition function (for easy bookkeeping)
+        self.config.base_savepath = (
+            self.config.base_savepath.parent
+            / f"{self.config.base_savepath.name}_{self.config.acquisition_function}"
+        )
 
     def optimize(self):
         for i in range(self.config.n_iters):
             self._i = i
             # Fit surrogate model:
             self._fit_model()
+            # New candidate points:
+            cand_seed = self.config.init_seed + i
+            self.cand_x = self._generate_candidates(seed=cand_seed)
             # Acquire points:
             self.next_x, self.next_y_orig, self.next_y_sigma = self._acquire()
             # Update training data:
@@ -105,6 +115,49 @@ class ActiveLearner:
                 f"Unknown init_data_strategy {self.config.init_data_strategy}"
             )
 
+    def _generate_candidates(
+        self,
+        seed,
+    ) -> tuple[Float[torch.Tensor, "n 2"],]:
+        if self.config.cand_data_strategy == "sobol":
+            # Generate Sobol sequence on unit square
+            engine = torch.quasirandom.SobolEngine(
+                dimension=2, scramble=True, seed=seed
+            )
+            init_x = engine.draw(self.config.iter_n_candidates)
+            init_x_quantized = self._quantize_theta(init_x)
+            return init_x_quantized
+        if self.config.cand_data_strategy == "marginal_sobol":
+            # Generate Sobol sequence on unit square
+            engine = torch.quasirandom.SobolEngine(
+                dimension=1, scramble=True, seed=seed
+            )
+            init_temps = []
+            init_thetas = []
+            for i in range(self.data_generator.theta_range + 1):
+                temps = engine.draw(
+                    self.config.iter_n_candidates
+                    // (self.data_generator.theta_range + 1)
+                ).ravel()
+                thetas = (
+                    i
+                    * torch.ones(
+                        self.config.iter_n_candidates
+                        // (self.data_generator.theta_range + 1)
+                    )
+                    / (self.data_generator.theta_range)
+                )
+                init_temps.append(temps)
+                init_thetas.append(thetas)
+            init_x = torch.vstack(
+                [torch.hstack(init_temps), torch.hstack(init_thetas)]
+            ).T
+            return init_x
+        else:
+            raise NotImplementedError(
+                f"Unknown cand_data_strategy {self.config.cand_data_strategy}"
+            )
+
     def _init_model(self) -> TwiceDifferentiableModel:
         MeanModuleClass = getattr(gpytorch.means, self.config.mean_module)
         mean_module = MeanModuleClass(**self.config.mean_module_kwargs)
@@ -128,15 +181,36 @@ class ActiveLearner:
         Float[torch.Tensor, "n 1"],
         Float[torch.Tensor, "n 1"],
     ]:
+        # Random
         if self.config.acquisition_function == "random":
             next_x = torch.distributions.Uniform(
                 torch.tensor(0.0), torch.tensor(1.0)
             ).sample((1, 2))
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
+            self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))
             return next_x_quantized, next_y_mean, next_y_sigma
+
+        # EIG
+        elif self.config.acquisition_function == "eig":
+            eig = EIG()
+            scores = eig(self)
+            self.last_scores = scores.detach().cpu()
+            best_idx = torch.argmax(scores)
+            next_x = self.cand_x[best_idx : best_idx + 1]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
+        # Mutual information
         elif self.config.acquisition_function == "mutual_information":
-            raise NotImplementedError("Mutual information not implemented yet.")
+            mi = MUTUAL_INFORMATION()
+            scores = mi(self)
+            self.last_scores = scores.detach().cpu()
+            best_idx = torch.argmax(scores)
+            next_x = self.cand_x[best_idx : best_idx + 1]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
         else:
             raise NotImplementedError(
                 f"Unrecognized acquisition function {self.config.acquisition_function}"
