@@ -100,7 +100,7 @@ def plot3d(learner: "ActiveLearner"):
             mode="markers",
             marker=dict(
                 size=6,
-                opacity=0.7,
+                opacity=0.4,
                 color=z_cloud,
                 colorscale="Jet",
                 showscale=True,
@@ -161,7 +161,7 @@ def plot3d(learner: "ActiveLearner"):
             y=new_xs[:, 1].detach().cpu().numpy(),
             z=z_next.detach().cpu().numpy(),
             mode="markers",
-            marker=dict(symbol="x", size=4, color="orange", opacity=1.0),
+            marker=dict(symbol="x", size=5, color="orange", opacity=1.0),
             showlegend=False,
             hovertemplate="Temp: %{x}<br>Theta: %{y}<br>" + z_label + ": %{z}<extra></extra>",
         )
@@ -182,7 +182,7 @@ def plot3d(learner: "ActiveLearner"):
     fig.update_layout(
         title_text=f"{METHOD_LABEL.get(method, method)} Posterior | Iteration {learner._i}",
         scene=dict(
-            xaxis=dict(title="Temp", range=x_range),
+            xaxis=dict(title="Temperature", range=x_range),
             yaxis=dict(title="Coverage", range=y_range),
             zaxis=dict(title=z_label, range=z_range),
         ),
