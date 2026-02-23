@@ -11,6 +11,7 @@ from bayes_phase.active_learning import callbacks
 from bayes_phase.acquisition import diagram_generation
 from bayes_phase.acquisition import EIG
 from bayes_phase.acquisition import MutualInformation
+from bayes_phase.models import means
 
 
 class ActiveLearner:
@@ -155,7 +156,7 @@ class ActiveLearner:
             )
 
     def _init_model(self) -> TwiceDifferentiableModel:
-        MeanModuleClass = getattr(gpytorch.means, self.config.mean_module)
+        MeanModuleClass = getattr(means, self.config.mean_module)
         mean_module = MeanModuleClass(**self.config.mean_module_kwargs)
         BaseKernelClass = getattr(kernels, self.config.base_kernel)
         base_kernel = BaseKernelClass(**self.config.base_kernel_kwargs)

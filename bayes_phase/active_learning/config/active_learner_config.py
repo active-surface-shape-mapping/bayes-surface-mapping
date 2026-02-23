@@ -32,9 +32,10 @@ class CandDataStrategy(StrEnum):
 
 
 class MeanModule(StrEnum):
+    ZERO = "ZeroMean"
     CONSTANT = "ConstantMean"
     LINEAR = "LinearMean"
-    ZERO = "ZeroMean"
+    QUADRATIC = "QuadraticMean"
 
 
 class BaseKernel(StrEnum):
