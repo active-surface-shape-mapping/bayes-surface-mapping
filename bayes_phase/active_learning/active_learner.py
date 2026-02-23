@@ -34,7 +34,7 @@ class ActiveLearner:
             # Fit surrogate model:
             self._fit_model()
             # New candidate points:
-            cand_seed = self.config.init_seed + i
+            cand_seed = self.config.init_seed + 1 + i
             self.cand_x = self._generate_candidates(seed=cand_seed)
             # Acquire points:
             self.next_x, self.next_y_orig, self.next_y_sigma = self._acquire()
@@ -84,12 +84,13 @@ class ActiveLearner:
             init_thetas = []
             for i in range(0, self.data_generator.theta_range + 1):
                 temps = engine.draw(
-                    self.config.init_n_points // (self.data_generator.theta_range)
+                    self.config.init_n_points // (self.data_generator.theta_range + 1)
                 ).ravel()
                 thetas = (
                     i
                     * torch.ones(
-                        self.config.init_n_points // (self.data_generator.theta_range)
+                        self.config.init_n_points
+                        // (self.data_generator.theta_range + 1)
                     )
                     / (self.data_generator.theta_range)
                 )
