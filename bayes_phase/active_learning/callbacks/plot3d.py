@@ -86,7 +86,7 @@ def plot3d(learner: "ActiveLearner"):
     z_next = learner.next_y_orig.detach().reshape(-1)
 
     # Plotly figure
-    z_label = "log(Cv)" if learner.config.use_log_transform else "Cv"
+    z_label = "Log(scaled Cv)" if learner.config.use_log_transform else "Scaled Cv"
 
     fig = go.Figure()
 
