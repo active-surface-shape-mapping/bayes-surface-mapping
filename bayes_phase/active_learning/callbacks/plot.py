@@ -80,3 +80,4 @@ def plot(learner: "ActiveLearner"):
     plot_diagrams(learner, diagrams, ax[0, 1])
     plt.tight_layout()
     plt.savefig(savepath, dpi=100)
+    plt.close()
