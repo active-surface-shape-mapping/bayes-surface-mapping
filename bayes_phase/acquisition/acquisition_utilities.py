@@ -209,9 +209,9 @@ def find_ridges(
     X,
     f_vals,
     *,
-    peak_threshold: float = 0.02,
+    peak_threshold: float = 0.01,
     distance: int = 5,
-    theta_decimals: int = 6,   # rounding tolerance for grouping theta
+    theta_decimals: int = 6,   # rounding tolerance for grouping normalized theta
 ):
     device = X.device
 
