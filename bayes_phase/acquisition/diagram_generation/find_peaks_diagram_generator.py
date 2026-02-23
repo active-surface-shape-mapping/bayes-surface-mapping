@@ -16,7 +16,7 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         theta_range: int,
         n_temp_grid: int = 200,
         n_starts: int = 10,
-        peak_threshold: float = 0.02,
+        peak_threshold: float = 0.05,
     ):
         self.model = model
         self.likelihood = likelhood
@@ -41,9 +41,9 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
             (self.n_temp_grid, self.n_theta_grid)
         )
         m, _ = sample.shape
-        scale = (sample.amax() - sample.amin()).item()
         peak_locations = []
         for i, row in enumerate(sample.T):
+            scale = (row.amax() - row.amin()).item()
             peaks, _ = find_peaks(row, prominence=self.peak_threshold * scale)
             temps = self.temp_grid[peaks]
             vals = row[peaks]
