@@ -20,6 +20,11 @@ class ActiveLearner:
         self.train_y, self._y_mean, self._y_std = self._normalize_y(self.train_y_orig)
         self.model = self._init_model()
         self._i = 0
+        # Update savepath to include name of acquisition function (for easy bookkeeping)
+        self.config.base_savepath = (
+        self.config.base_savepath.parent
+        / f"{self.config.base_savepath.name}_{self.config.acquisition_function}"
+        )
 
     def optimize(self):
         for i in range(self.config.n_iters):
