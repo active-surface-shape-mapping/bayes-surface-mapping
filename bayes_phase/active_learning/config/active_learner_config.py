@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -55,6 +55,7 @@ class DiagramGenerator(StrEnum):
 
 @dataclass
 class ActiveLearnerConfig:
+    global_seed: Optional[int] = None
     n_iters: int = 10
     init_n_points: int = 5
     init_seed: int = 42

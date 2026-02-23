@@ -1,6 +1,8 @@
 from omegaconf import OmegaConf, DictConfig
 from argparse import ArgumentParser
 from pathlib import Path
+import numpy as np
+import torch
 
 from bayes_phase.active_learning.active_learner import (
     ActiveLearner,
@@ -28,6 +30,12 @@ if __name__ == "__main__":
     Path(config.base_savepath).mkdir(exist_ok=True, parents=True)
     with open(Path(config.base_savepath) / "config.yaml", "w") as fp:
         OmegaConf.save(config=config, f=fp.name)
+
+    # Set random seed(s)
+    if config.global_seed is not None:
+        torch.use_deterministic_algorithms(True)
+        torch.manual_seed(config.global_seed)
+        np.random.seed(config.global_seed)
 
     # Build active learner and run it
     assert isinstance(config, DictConfig)
