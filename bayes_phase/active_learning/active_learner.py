@@ -165,31 +165,37 @@ class ActiveLearner:
         Float[torch.Tensor, "n 1"],
         Float[torch.Tensor, "n 1"],
     ]:
+        # Random
         if self.config.acquisition_function == "random":
             next_x = torch.distributions.Uniform(
                 torch.tensor(0.0), torch.tensor(1.0)
             ).sample((1, 2))
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
+            self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))
             return next_x_quantized, next_y_mean, next_y_sigma
 
         # EIG
         elif self.config.acquisition_function == "eig":
             eig = EIG()
             scores = eig(self)
+            self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx:best_idx+1]
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
-
+        # Mutual information
         elif self.config.acquisition_function == "mutual_information":
             mi = MUTUAL_INFORMATION()
             scores = mi(self)
+            self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx:best_idx+1]
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
+
+        # Store acquisition scores
 
         else:
             raise NotImplementedError(
