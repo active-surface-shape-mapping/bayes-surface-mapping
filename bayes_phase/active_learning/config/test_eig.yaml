@@ -1,9 +1,9 @@
-acquisition_function: eig
+acquisition_function: EIG
 callbacks:
   - plot
   - plot3d
   - plot_acq
 init_n_points: 20
-init_data_strategy: sobol
-cand_data_strategy: sobol
+init_data_strategy: SOBOL
+cand_data_strategy: SOBOL
 n_iters: 20

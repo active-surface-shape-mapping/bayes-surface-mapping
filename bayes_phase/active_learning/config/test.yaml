@@ -1,9 +1,9 @@
-acquisition_function: random
+acquisition_function: RANDOM
 callbacks:
   - plot
-init_n_points: 1000
-init_data_strategy: GRID
+init_n_points: 20
+init_data_strategy: SOBOL
 n_iters: 2
-mean_module: LINEAR
-mean_module_kwargs:
-  input_size: 2
+# mean_module: LINEAR
+# mean_module_kwargs:
+#   input_size: 2
