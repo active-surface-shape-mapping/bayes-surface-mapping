@@ -1,6 +1,7 @@
 acquisition_function: mutual_information
 callbacks:
   - plot
+  - plot3d
 init_n_points: 5
 init_data_strategy: sobol
 cand_data_strategy: sobol
