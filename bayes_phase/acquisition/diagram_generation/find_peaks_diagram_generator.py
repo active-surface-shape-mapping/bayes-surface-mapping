@@ -5,6 +5,7 @@ from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 
 from .base_diagram_generator import DiagramOutput
+from bayes_phase.utils import eval_context
 
 
 class FindPeaksDiagramGenerator(BaseDiagramGenerator):
@@ -27,6 +28,13 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self.points = torch.stack([X.ravel(), Y.ravel()]).T
         self.peak_threshold = peak_threshold
         self._update()
+
+    def _update(self):
+        with eval_context(self.model):
+            self.pred = self.model(self.points)
+        self.distribution = torch.distributions.MultivariateNormal(
+            self.pred.mean, self.pred.covariance_matrix
+        )
 
     def generate_diagram(self) -> DiagramOutput:
         sample = self.distribution.sample().reshape(
