@@ -48,8 +48,7 @@ class MutualInformation:
         for s in range(n_mc_samples):
             f_s = f_samples[:, s]  # (m,)
 
-            # Ridge finder expects X and f-values on X
-            # It returns indices + ridge_x (points in input space)
+            # Ridge finder returns indices + ridge_x
             try:
                 _, ridge_x = find_ridges(
                     X,
@@ -68,13 +67,12 @@ class MutualInformation:
                 )
 
             if out is None:
-                # EP returned None (if you ever change it to do so) -> skip
+                # IF EP returned None -> skip
                 continue
 
             mu_cond, Sigma_cond = out
 
-            # Sigma_cond corresponds to joint over [f(X), f''(ridge)] (per your code).
-            # The first m entries are f(X). So take the top-left block diagonal.
+            # Sigma_cond corresponds to joint over [f(X), f''(ridge)]; extract f(X)
             m = X.shape[0]
             var_cond = Sigma_cond[:m, :m].diagonal().clamp_min(1e-30)  # (m,)
             H_cond = 0.5 * torch.log(var_cond) + 0.5 * math.log(2.0 * math.pi * math.e)
