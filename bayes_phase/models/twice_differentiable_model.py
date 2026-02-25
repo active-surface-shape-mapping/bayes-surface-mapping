@@ -1,7 +1,7 @@
 import gpytorch
 import torch
 from typing import Literal, Optional
-from .kernels import MaternKernelWithGrad, RBFKernelWithGrad
+from .kernels import Matern52KernelWithGrad, RBFKernelWithGrad
 from jaxtyping import Float
 
 
@@ -12,7 +12,7 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         self,
         train_x,
         train_y,
-        base_kernel: [MaternKernelWithGrad | RBFKernelWithGrad],
+        base_kernel: [Matern52KernelWithGrad | RBFKernelWithGrad],
         mean_module: Optional[gpytorch.means.Mean] = None,
     ):
         # Define likelihood, mean, and kernel:
