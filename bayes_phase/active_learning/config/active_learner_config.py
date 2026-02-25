@@ -40,7 +40,7 @@ class MeanModule(StrEnum):
 
 class BaseKernel(StrEnum):
     RBF = "RBFKernelWithGrad"
-    MATERN = "MaternKernelWithGrad"
+    MATERN = "Matern52KernelWithGrad"
 
 
 class AcquisitionFunction(StrEnum):
@@ -61,7 +61,7 @@ class ActiveLearnerConfig:
     init_n_points: int = 5
     init_seed: int = 42
     iter_n_candidates: int = 300  # number of candidate points per iteration
-    n_mc_samples: int = 20  # number of MC samples for acquisition function
+    n_mc_samples: int = 200  # number of MC samples for MI acquisition function
     dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
