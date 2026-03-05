@@ -78,4 +78,5 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
             peak_locations.append(torch.stack((temps, thetas)).T)
 
         peaks = torch.vstack(peak_locations)
+        peaks = self._remove_duplicate_points(peaks)
         return peaks, sample

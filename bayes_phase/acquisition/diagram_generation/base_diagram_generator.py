@@ -40,3 +40,14 @@ class BaseDiagramGenerator(ABC):
             peaks = opt_points[i][mask]
             all_peaks.append(peaks)
         return torch.vstack(all_peaks)
+
+    def _remove_duplicate_points(
+        self, points: Float[torch.Tensor, "n 2"], delta: float = 0.005
+    ):
+        new_points = points[0:1]
+        for i in range(1, points.shape[0]):
+            next_point = points[i : i + 1]
+            if torch.all(torch.cdist(new_points, next_point).amin(0) > delta):
+                new_points = torch.cat([new_points, next_point], dim=0)
+
+        return new_points
