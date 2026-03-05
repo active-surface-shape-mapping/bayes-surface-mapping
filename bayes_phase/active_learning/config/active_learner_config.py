@@ -29,6 +29,7 @@ class InitDataStrategy(StrEnum):
 class CandDataStrategy(StrEnum):
     SOBOL = "sobol"
     MARGINAL_SOBOL = "marginal_sobol"
+    MARGINAL_POISSON_DISK = "marginal_poisson_disk"
 
 
 class MeanModule(StrEnum):

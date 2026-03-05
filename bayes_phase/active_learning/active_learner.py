@@ -12,6 +12,7 @@ from bayes_phase.acquisition import diagram_generation
 from bayes_phase.acquisition import EIG
 from bayes_phase.acquisition import MutualInformation
 from bayes_phase.models import means
+import scipy.stats as sps
 from tqdm import tqdm
 
 
@@ -137,6 +138,37 @@ class ActiveLearner:
                     self.config.iter_n_candidates
                     // (self.data_generator.theta_range + 1)
                 ).ravel()
+                thetas = (
+                    i
+                    * torch.ones(
+                        self.config.iter_n_candidates
+                        // (self.data_generator.theta_range + 1)
+                    )
+                    / (self.data_generator.theta_range)
+                )
+                init_temps.append(temps)
+                init_thetas.append(thetas)
+            init_x = torch.vstack(
+                [torch.hstack(init_temps), torch.hstack(init_thetas)]
+            ).T
+            return init_x
+        elif self.config.cand_data_strategy == "marginal_poisson_disk":
+            # Initialize engine:
+            ncandidates = self.config.iter_n_candidates // (
+                self.data_generator.theta_range + 1
+            )
+            # Draw points
+            init_temps = []
+            init_thetas = []
+            for i in range(0, self.data_generator.theta_range + 1):
+                engine = sps.qmc.PoissonDisk(
+                    d=1,
+                    radius=0.5 / ncandidates,
+                    ncandidates=10 * ncandidates,
+                    l_bounds=[0.0],
+                    u_bounds=[1.0],
+                )
+                temps = torch.tensor(engine.random(ncandidates).ravel())
                 thetas = (
                     i
                     * torch.ones(
