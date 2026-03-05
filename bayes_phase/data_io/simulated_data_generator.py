@@ -14,6 +14,16 @@ class SimulatedDataGenerator(BaseDataGenerator):
         self,
         paths_to_data: Sequence[str | Path],
     ):
+        """Intialize an object for retreiving simulated data.
+
+        Parameters
+        ----------
+        paths_to_data
+            The paths to the .arrow files containing the simulated data. Each
+            arrow file is expected to contain the results from a single
+            simulation, with columns "temp_in_K" containing the temperature
+            index, and "θ_1" to "θ_k" containing the corresponding energy.
+        """
         self.paths_to_data = paths_to_data
         self.n_samples = len(paths_to_data)
         self.data = read_data(paths_to_data)
@@ -90,19 +100,23 @@ class SimulatedDataGenerator(BaseDataGenerator):
     @property
     def min_temp(self) -> float:
         min_temp = self.data["temp_in_K"].min()
+        """Return the minimum temperature bound."""
         assert isinstance(min_temp, float)
         return min_temp
 
     @property
     def max_temp(self) -> float:
+        """Return the maximum temperature bound."""
         max_temp = self.data["temp_in_K"].max()
         assert isinstance(max_temp, float)
         return max_temp
 
     @property
     def min_theta(self) -> int:
+        """Return the minimum theta bound."""
         return self._min_theta
 
     @property
     def max_theta(self) -> int:
+        """Return the maximum theta bound."""
         return self._max_theta

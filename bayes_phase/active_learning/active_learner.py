@@ -1,4 +1,4 @@
-from jaxtyping import Float, Int
+from jaxtyping import Float
 import torch
 import gpytorch
 from botorch.fit import fit_gpytorch_mll
@@ -18,6 +18,13 @@ from tqdm import tqdm
 
 class ActiveLearner:
     def __init__(self, config: ActiveLearnerConfig):
+        """Initialize an ActiveLearner from a given config.
+
+        Parameters
+        ----------
+        config
+            The config object.
+        """
         self.config = config
         self.data_generator = self._init_dataset()
         self.train_x, self.train_y_orig, self.train_y_sigma = self._init_train_data()
@@ -27,6 +34,7 @@ class ActiveLearner:
         self._i = 0
 
     def optimize(self):
+        """Execute the active learning loop."""
         for i in tqdm(range(self.config.n_iters), desc="Active Learning"):
             self._i = i
             # Fit surrogate model:
@@ -55,6 +63,16 @@ class ActiveLearner:
             self._run_callbacks()
 
     def _init_dataset(self) -> BaseDataGenerator:
+        """Initialize the data generator object.
+
+        For now, this uses simulated data, but could be replaced by a subroutine
+        to run the simulation(s).
+
+        Returns
+        -------
+        data_generator
+            The object for generating observations/data.
+        """
         return SimulatedDataGenerator(self.config.dataset_paths)
 
     def _init_train_data(
@@ -64,6 +82,14 @@ class ActiveLearner:
         Float[torch.Tensor, "n 1"],
         Float[torch.Tensor, "n 1"],
     ]:
+        """Initialize training points and evaluate them.
+
+        Returns
+        -------
+        (training_points, y_mean, y_sigma)
+            The training points and the mean and standard deviation of the
+            corresponding observed y-values.
+        """
         if self.config.init_data_strategy == "sobol":
             # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
@@ -117,7 +143,14 @@ class ActiveLearner:
     def _generate_candidates(
         self,
         seed,
-    ) -> tuple[Float[torch.Tensor, "n 2"],]:
+    ) -> Float[torch.Tensor, "n 2"]:
+        """Initialize candidate acquisition points.
+
+        Returns
+        -------
+        candidate_points
+            The candidate acquisition points.
+        """
         if self.config.cand_data_strategy == "sobol":
             # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
@@ -198,11 +231,12 @@ class ActiveLearner:
         )
 
     def _fit_model(self):
+        """Fit the surrogate model to the current training data."""
         mll = gpytorch.mlls.ExactMarginalLogLikelihood(
             self.model.likelihood,
             self.model,
         )
-        fit_gpytorch_mll(mll)
+        fit_gpytorch_mll(mll)  # TODO: add retries/multiple inits
 
     def _acquire(
         self,
@@ -211,6 +245,14 @@ class ActiveLearner:
         Float[torch.Tensor, "n 1"],
         Float[torch.Tensor, "n 1"],
     ]:
+        """Acquire new points and evaluate them.
+
+        Returns
+        -------
+        (acquisitions, y_mean, y_sigma)
+            The acquired point(s) and the mean and standard deviation of the
+            corresponding observed y-values.
+        """
         # Random
         if self.config.acquisition_function == "random":
             next_x = torch.distributions.Uniform(
@@ -246,14 +288,6 @@ class ActiveLearner:
                 f"Unrecognized acquisition function {self.config.acquisition_function}"
             )
 
-    def _transform_inputs(
-        self,
-        temp: Float[torch.Tensor, "n 1"],
-        theta: Int[torch.Tensor, "n 1"],
-    ) -> Float[torch.Tensor, "n 2"]:
-        """Convert input temp and theta to unit cube."""
-        return torch.hstack([temp, theta.double()])
-
     def _normalize_y(
         self,
         y_orig: Float[torch.Tensor, "n 1"],
@@ -262,7 +296,19 @@ class ActiveLearner:
         Float[torch.Tensor, ""],
         Float[torch.Tensor, ""],
     ]:
-        """Normalize input y by mean and standard deviation."""
+        """Normalize input y by mean and standard deviation.
+
+        Parameters
+        ----------
+        y_orig
+            The original y-values.
+
+        Returns
+        -------
+        y_normalized, mean, std
+            The y-values after normalization, along with the mean and standard
+            deviation used to normalize.
+        """
         mean = y_orig.mean()
         std = y_orig.std()
         return (y_orig - mean) / std, mean, std
@@ -273,19 +319,47 @@ class ActiveLearner:
         mean: Float[torch.Tensor, ""],
         std: Float[torch.Tensor, ""],
     ) -> Float[torch.Tensor, "n 1"]:
-        """Unnormalize input y by mean and standard deviation."""
+        """Unnormalize input y by mean and standard deviation.
+
+        Parameters
+        ----------
+        y_normalized
+            The normalized y-values.
+        mean
+            The mean of the original y-values.
+        std
+            The standard deviation of the original y-values.
+
+        Returns
+        -------
+        y_orig
+            The original y-values.
+        """
         return (y_transformed * std) + mean
 
     def _quantize_theta(
         self, u: Float[torch.Tensor, "n 2"]
     ) -> Float[torch.Tensor, "n 2"]:
-        """Take unit square input and quantize its theta values."""
+        """Take unit square input and quantize its theta values.
+
+        Parameters
+        ----------
+        u
+            The input points in [0,1]x[0,1].
+
+        Returns
+        -------
+        u'
+            The output points, still in [0,1]x[0,1] but quantized such that the
+            theta-values in the original domain are integers.
+        """
         x = self.data_generator.untransform_inputs(u)
         x[:, 1] = x[:, 1].round()
         u_quantized = self.data_generator.transform_inputs(x)
         return u_quantized
 
     def _run_callbacks(self):
+        """Run any per-step callbacks, e.g. for plotting, logging, etc."""
         for callback in self.config.callbacks:
             fn = getattr(callbacks, callback)
             fn(self)
@@ -293,12 +367,33 @@ class ActiveLearner:
     def _observe(
         self, u: Float[torch.Tensor, "n 2"]
     ) -> tuple[Float[torch.Tensor, "n 1"], Float[torch.Tensor, "n 1"]]:
+        """Observe measurements and return their mean and standard deviation.
+
+        Parameters
+        ----------
+        u
+            The points (in uniform [0,1]x[0,1] space) at which to make the
+            observations.
+
+        Returns
+        -------
+        y_mean, y_std
+            The mean and standard deviation of the corresponding observations,
+            optionally after a log-transform.
+        """
         y = self.data_generator.measure_uniform(u)
         if self.config.use_log_transform:
             y = y.log()
         return y.mean(-1).reshape((-1, 1)), y.std(-1).reshape((-1, 1))
 
     def _init_diagram_generator(self) -> diagram_generation.BaseDiagramGenerator:
+        """Initialize an object for sampling phase boundary diagrams.
+
+        Returns
+        -------
+        diagram_generator
+            The diagram generator object.
+        """
         DiagramGeneratorClass = getattr(
             diagram_generation, self.config.diagram_generator
         )
