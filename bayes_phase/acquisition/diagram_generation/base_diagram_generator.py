@@ -1,8 +1,11 @@
 from abc import ABC, abstractmethod
 import torch
 from jaxtyping import Float
-import gpytorch
 from typing import Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bayes_phase.active_learning import ActiveLearner
 
 DiagramOutput = tuple[Float[torch.Tensor, "n d"], Float[torch.Tensor, "n_temp n_theta"]]
 """A two-element tuple where the first element is a collection of points
@@ -12,15 +15,15 @@ path corresponding to that boundary."""
 
 class BaseDiagramGenerator(ABC):
     @abstractmethod
-    def __init__(self, model: gpytorch.models.GP, *args, **kwargs):
+    def __init__(self, learner: "ActiveLearner", *args, **kwargs):
         """Initialize an object for generating samples of phase diagram boundaries.
 
         Parameters
         ----------
-        model
-            The surrogate model from which to draw sample paths.
+        learner
+            The active learning object, for context.
         """
-        self.model = model
+        self.learner = learner
 
     @abstractmethod
     def generate_diagram(

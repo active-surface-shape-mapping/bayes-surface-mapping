@@ -44,7 +44,7 @@ class ActiveLearner:
             )
             # Full update:
             self.model.set_train_data(self.train_x, self.train_y.ravel(), strict=False)
-            assert self.model is self.diagram_generator.model
+            assert self.model is self.diagram_generator.learner.model
             # Rank-one update:
             # self.model(0.5 * torch.ones((1, 2)))
             # self.model = self.model.get_fantasy_model(
@@ -303,9 +303,7 @@ class ActiveLearner:
             diagram_generation, self.config.diagram_generator
         )
         diagram_generator = DiagramGeneratorClass(
-            self.model,
-            self.model.likelihood,
-            self.data_generator.theta_range,
+            self,
             **self.config.diagram_generator_kwargs,
         )
         return diagram_generator
