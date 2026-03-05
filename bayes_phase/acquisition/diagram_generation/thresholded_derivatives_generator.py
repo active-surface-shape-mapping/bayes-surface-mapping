@@ -16,6 +16,7 @@ class ThresholdedDerivativesDiagramGenerator(BaseDiagramGenerator):
         d2dt2_threshold: float = -1.0,
         n_starts: int = 10,
     ):
+        raise NotImplementedError(f"{self.__class__} not yet implemented.")
         self.model = model
         self.likelihood = likelhood
         self.n_theta = n_theta
