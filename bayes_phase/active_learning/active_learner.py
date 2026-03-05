@@ -12,6 +12,7 @@ from bayes_phase.acquisition import diagram_generation
 from bayes_phase.acquisition import EIG
 from bayes_phase.acquisition import MutualInformation
 from bayes_phase.models import means
+from tqdm import tqdm
 
 
 class ActiveLearner:
@@ -25,7 +26,7 @@ class ActiveLearner:
         self._i = 0
 
     def optimize(self):
-        for i in range(self.config.n_iters):
+        for i in tqdm(range(self.config.n_iters), desc="Active Learning"):
             self._i = i
             # Fit surrogate model:
             self._fit_model()
