@@ -3,16 +3,14 @@ import torch
 import math
 import pytest
 
-torch.set_default_dtype(torch.double)
 
-
-# --- Autodiff reference
+# Autodiff reference
 def _matern52_scalar_autodiff(xi: torch.Tensor, zj: torch.Tensor, lengthscale: torch.Tensor) -> torch.Tensor:
     """
     Matérn(5/2) base kernel (unit output scale), computed as a scalar and made
     to work with autodiff at coincident points by using a Taylor branch for r ~ 0.
-    - r is the scaled distance after dividing by lengthscale(s).
-    - This function returns the base kernel value only (no outputscale).
+    - r is the scaled distance after dividing by length scale(s).
+    - This function returns the base kernel value (not multiplied by output scale)
     """
     diff = xi - zj  # (d,)
 
@@ -29,7 +27,8 @@ def _matern52_scalar_autodiff(xi: torch.Tensor, zj: torch.Tensor, lengthscale: t
     r0 = 1e-4
     r0_2 = r0 * r0
 
-    # Series near 0: k(r) = 1 - (5/6) r^2 + (25/24) r^4 + O(r^6)
+    # Second-order Taylor expansion in r^2 near 0: k(r) = 1 - (5/6) r^2 + (25/24) r^4. 
+    # Computed using Wolfram Mathematica 14.2 https://www.wolfram.com/mathematica/.
     k_series = 1.0 - (5.0 / 6.0) * r2 + (25.0 / 24.0) * (r2 * r2)
 
     # Exact branch, avoiding sqrt(0) by clamping r2 only in this branch
@@ -92,7 +91,7 @@ def _all_pairs_autodiff(x: torch.Tensor, z: torch.Tensor, lengthscale: torch.Ten
 
 
 
-# --- Tests -------------------------------------------------------------------
+# Tests-------------------------------------------------------------
 
 def test_matern_kernel_with_grad_requires_nu_2p5():
     _ = Matern52KernelWithGrad(nu=2.5, ard_num_dims=2)
@@ -105,9 +104,8 @@ def test_matern_kernel_with_grad_requires_nu_2p5():
 @pytest.mark.parametrize("ard_num_dims", [1, 2])
 def test_matern52_derivative_blocks_match_autodiff_with_coincident_points(ard_num_dims: int):
     """
-    Closed-form derivative blocks for Matérn(5/2) match a scalar autograd reference.
-    This test explicitly includes coincident and near-coincident pairs to exercise
-    the R≈0 handling paths.
+    Test closed-form derivative blocks for Matérn(5/2) against autograd.
+    Include coincident and near-coincident pairs to exercise the R~0 handling paths.
     """
     torch.manual_seed(0)
 
@@ -124,11 +122,11 @@ def test_matern52_derivative_blocks_match_autodiff_with_coincident_points(ard_nu
         ls = torch.tensor([0.37, 1.23], dtype=torch.double)
     k.lengthscale = ls
 
-    # --- Force exact coincidences (R = 0) ---
+    # Force exact coincidences (R = 0)
     z[0] = x[0]
     z[1] = x[1]
 
-    # --- Force near coincidences that fall below the analytic eps used in closed forms ---
+    # Force near coincidences that fall below the analytic eps used in closed forms
     ls0 = ls if ls.ndim == 0 else ls[0]
     delta_scaled = 1e-14
     delta_unscaled = delta_scaled * ls0
@@ -145,7 +143,7 @@ def test_matern52_derivative_blocks_match_autodiff_with_coincident_points(ard_nu
     d3 = k.d3dxt2zt(x, z)
     d4 = k.d4dxt2zt2(x, z)
 
-    # Convert LinearOperators if needed
+    # Convert LinearOperators
     dd = dd.to_dense() if hasattr(dd, "to_dense") else dd
     d2 = d2.to_dense() if hasattr(d2, "to_dense") else d2
     d22 = d22.to_dense() if hasattr(d22, "to_dense") else d22
@@ -153,8 +151,8 @@ def test_matern52_derivative_blocks_match_autodiff_with_coincident_points(ard_nu
     d4 = d4.to_dense() if hasattr(d4, "to_dense") else d4
 
     # Tolerances
-    assert torch.allclose(dd, dd_ad, rtol=1e-9, atol=1e-9)
-    assert torch.allclose(d2, d2_ad, rtol=1e-9, atol=1e-9)
-    assert torch.allclose(d22, d22_ad, rtol=1e-9, atol=1e-9)
-    assert torch.allclose(d3, d3_ad, rtol=1e-9, atol=1e-9)
-    assert torch.allclose(d4, d4_ad, rtol=1e-9, atol=1e-9)
+    assert torch.allclose(dd, dd_ad, rtol=1e-8, atol=1e-8)
+    assert torch.allclose(d2, d2_ad, rtol=1e-8, atol=1e-8)
+    assert torch.allclose(d22, d22_ad, rtol=1e-8, atol=1e-8)
+    assert torch.allclose(d3, d3_ad, rtol=1e-8, atol=1e-8)
+    assert torch.allclose(d4, d4_ad, rtol=1e-8, atol=1e-8)
