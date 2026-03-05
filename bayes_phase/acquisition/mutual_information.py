@@ -1,7 +1,8 @@
 import torch
 import math
 from jaxtyping import Float
-from .acquisition_utilities import sample_from_gaussian, posterior_latent, find_ridges
+
+from bayes_phase.utils import eval_context
 
 # FIXME: Noise approach between MI and EIG in this draft may be inconsistent.
 #        Confirm whether acquisition should condition on noisy or latent values.
@@ -25,10 +26,13 @@ class MutualInformation:
         X = learner.cand_x
         n_mc_samples = int(learner.config.n_mc_samples)
 
-        # ---- H(Y): baseline entropy at each candidate (univariate Gaussian) ----
-        with torch.no_grad():
-            mean_X, cov_X = posterior_latent(model, X)  # cov over f(X)
-        var_base = cov_X.diagonal().clamp_min(1e-30)  # (m,)
+        # # ---- H(Y): baseline entropy at each candidate (univariate Gaussian) ----
+        # with torch.no_grad():
+        #     mean_X, cov_X = posterior_latent(model, X)  # cov over f(X)
+        # var_base = cov_X.diagonal().clamp_min(1e-30)  # (m,)
+        with eval_context(learner.model):
+            predictions = learner.model(X[:, torch.newaxis, :])
+        var_base = predictions.variance.ravel()
 
         # H(N(., var)) = 0.5 * log(2*pi*e*var)
         H_base = 0.5 * torch.log(var_base) + 0.5 * math.log(
@@ -36,25 +40,15 @@ class MutualInformation:
         )  # (m,)
 
         # ---- Sample functions to induce ridge hypotheses ----
-        # f_samples: (m, S) each column is one sampled function over all candidates
-        with torch.no_grad():
-            f_samples = sample_from_gaussian(mean_X, cov_X, n_samples=n_mc_samples)
+        mc_samples = learner.diagram_generator.diagrams(n_mc_samples)
 
         # ---- Monte Carlo estimate of E[ H(Y | ridge) ] ----
         H_cond_sum = torch.zeros_like(H_base)
         n_used = 0
 
         # Monte Carlo sampling
-        for s in range(n_mc_samples):
-            f_s = f_samples[:, s]  # (m,)
-
-            # Ridge finder returns indices + ridge_x
-            try:
-                _, ridge_x = find_ridges(
-                    X,
-                    f_s,
-                )
-            except Exception:
+        for ridge_x, _ in mc_samples:
+            if ridge_x.numel() == 0:
                 # No ridges (or ridge-finder failed) for this sample -> skip sample
                 continue
 
