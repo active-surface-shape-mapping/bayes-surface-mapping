@@ -131,12 +131,12 @@ class Matern52KernelWithGrad(gpytorch.kernels.MaternKernel, TwiceDifferentiableB
         # Safe denominator to avoid division-by-zero / NaNs before masking
         R_safe = torch.where(mask, torch.ones_like(R), R)
 
-        d3kdu3 = (25.0 / 3.0) * exp_term * u * (sqrt5 * (u**2) - 3.0 * R) / R_safe
+        d3kdu3 = -(25.0 / 3.0) * exp_term * u * (sqrt5 * (u**2) - 3.0 * R) / R_safe
 
         # Diagonal limit: diag(d3kdu3) = 0
         d3kdu3 = torch.where(mask, torch.zeros_like(d3kdu3), d3kdu3)
 
-        return invls3 * d3kdu3
+        return -invls3 * d3kdu3
 
 
     # Returns covariance between function value t-second derivatives at 'x' and function value t-second derivatives at 'z'
@@ -167,7 +167,7 @@ class Matern52KernelWithGrad(gpytorch.kernels.MaternKernel, TwiceDifferentiableB
 
         d4kdu4 = (25.0 / 3.0) * exp_term * numerator / (R_safe**3)
 
-        # Diagonal limit (dimensionless): diag(d4kdu4) = 25  -> full diag = 25 / ℓ_T^4 after invls4
+        # Diagonal limit (dimensionless): diag(d4kdu4) = 25  -> full diag = 25 / l_T^4 after invls4
         d4kdu4 = torch.where(mask, torch.full_like(d4kdu4, 25.0), d4kdu4)
 
         return invls4 * d4kdu4
