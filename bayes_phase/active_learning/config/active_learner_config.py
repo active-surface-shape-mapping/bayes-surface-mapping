@@ -63,6 +63,9 @@ class ActiveLearnerConfig:
     init_seed: int = 42
     iter_n_candidates: int = 300  # number of candidate points per iteration
     n_mc_samples: int = 200  # number of MC samples for MI acquisition function
+    n_scoring_samples: int = 200 # number of samples to use for scoring at each iteration
+    scoring_grid_T_range: int = 50 # size of scoring box along the T axis, in K
+    max_T_span: float = 0.2 # max proportion of the T-range across which a spanning tree phase diagram connection will be made (ex. 0.2 = 20%)
     dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
