@@ -11,8 +11,7 @@ from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
 from bayes_phase.utils import eval_context
 
 
-
-def _create_mst(x_norm: torch.Tensor, n_theta: int) -> torch.Tensor:
+def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") -> torch.Tensor:
     """MST in normalized space, forbidding edges within same discrete theta level."""
     x = x_norm.detach().to(dtype=torch.float64, device="cpu")
     n = x.shape[0]
@@ -31,7 +30,7 @@ def _create_mst(x_norm: torch.Tensor, n_theta: int) -> torch.Tensor:
 
     # Limit connections across an excessive range of temperatures, for visual clarity
     dT = (x[i, 0] - x[j, 0]).abs()
-    keep2 = dT <= 0.2
+    keep2 = dT <= learner.config.max_T_span
     i, j = i[keep2], j[keep2]
 
     # Weight by full Euclidean distance in (T_norm, theta_norm):
@@ -45,7 +44,7 @@ def _create_mst(x_norm: torch.Tensor, n_theta: int) -> torch.Tensor:
     return torch.tensor(list(mst.edges()), dtype=torch.long)
 
 
-def plot_mst_diagrams(
+def _plot_mst_diagrams(
     learner: "ActiveLearner",
     diagrams: Iterator[DiagramOutput],
     ax: Axes,
@@ -58,7 +57,7 @@ def plot_mst_diagrams(
     for k, (diagram, _sample) in enumerate(diagrams):
         c = color if color is not None else cmap(k % 10)
 
-        edges = _create_mst(diagram, n_theta=n_theta)
+        edges = _create_mst(diagram, n_theta=n_theta, learner = learner)
 
         xys = learner.data_generator.untransform_inputs(diagram)  # plot in physical units
         # Optional: dots at ridge points
@@ -119,10 +118,10 @@ def plot_mst(learner: "ActiveLearner"):
 
     # Plot phase diagram boundaries
     gt_diagrams = learner.diagram_generator.diagrams(3, data_generator=learner.data_generator)
-    plot_mst_diagrams(learner, gt_diagrams, ax[0, 0], color="red")  
+    _plot_mst_diagrams(learner, gt_diagrams, ax[0, 0], color="red")  
 
     diagrams = learner.diagram_generator.diagrams(10)
-    plot_mst_diagrams(learner, diagrams, ax[0, 1])
+    _plot_mst_diagrams(learner, diagrams, ax[0, 1])
 
     plt.tight_layout()
     plt.savefig(savepath, dpi=100)
