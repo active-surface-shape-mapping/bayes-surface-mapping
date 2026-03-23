@@ -103,7 +103,7 @@ def plot_mst(learner: "ActiveLearner"):
         origin="lower",
     )
     savepath = (
-        Path(learner.config.base_savepath) / "plots" / f"iteration_{learner._i}.png"
+        Path(learner.config.base_savepath) / "mst_plots" / f"iteration_{learner._i}.png"
     )
     ax[0, 1].set_aspect("auto")
     xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
