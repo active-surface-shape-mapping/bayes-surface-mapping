@@ -1,16 +1,28 @@
 from abc import ABC, abstractmethod
 import torch
 from jaxtyping import Float
-from typing import Iterator
-from typing import TYPE_CHECKING
+from typing import NamedTuple, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from bayes_phase.active_learning import ActiveLearner
 
-DiagramOutput = tuple[Float[torch.Tensor, "n d"], Float[torch.Tensor, "n_temp n_theta"]]
-"""A two-element tuple where the first element is a collection of points
-representing the phase diagram boundary, and the second element is the GP sample
-path corresponding to that boundary."""
+
+class DiagramOutput(NamedTuple):
+    """Class containing potentially relevant information for conditioning on the phase boundary.
+
+    - `peaks` are coordinates of local energy maxima.
+    - `valleys` are coordinates of local energy minima.
+    - `increasing` are coordinates of increasing energy.
+    - `decreasing` are coordinates of decreasing energy.
+    - `sample` are energy values of the corresponding posterior sample, at grid
+        locations (for debugging).
+    """
+
+    peaks: Optional[Float[torch.Tensor, "n d"]]
+    valleys: Optional[Float[torch.Tensor, "n d"]]
+    increasing: Optional[Float[torch.Tensor, "n d"]]
+    decreasing: Optional[Float[torch.Tensor, "n d"]]
+    sample: Optional[Float[torch.Tensor, "n_temp n_theta"]]
 
 
 class BaseDiagramGenerator(ABC):
@@ -34,9 +46,6 @@ class BaseDiagramGenerator(ABC):
         Returns
         -------
         diagram_output: DiagramOutput
-            A two-element tuple where the first element is a collection of
-            points representing the phase diagram boundary, and the second
-            element is the GP sample path corresponding to that boundary.
         """
         ...
 
@@ -49,8 +58,8 @@ class BaseDiagramGenerator(ABC):
         function may be a no-op."""
         ...
 
-    def diagrams(self, n_diagrams: int, **kwargs) -> Iterator[DiagramOutput]:
-        """Get a lazy iterator over single phase diagram boundaries.
+    def diagrams(self, n_diagrams: int, **kwargs) -> list[DiagramOutput]:
+        """Get a list of phase diagram boundaries.
 
         Parameters
         ----------
@@ -60,12 +69,10 @@ class BaseDiagramGenerator(ABC):
         Returns
         -------
         diagrams
-            An iterator over `(diagram, sample_path)` pairs, of length
-            `n_diagrams`.
+            A list of `DiagramOutputs`.
         """
         self._update()
-        for i in range(n_diagrams):
-            yield self.generate_diagram(**kwargs)
+        return [self.generate_diagram(**kwargs) for _ in range(n_diagrams)]
 
     def _remove_duplicate_points(
         self, points: Float[torch.Tensor, "n 2"], delta: float = 0.005
