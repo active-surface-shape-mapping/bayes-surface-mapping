@@ -71,7 +71,7 @@ def plot_mst_diagrams(
     n_theta = learner.data_generator.theta_range
     cmap = plt.get_cmap("tab20")
 
-    for idx, (ridge_x, _sample) in enumerate(diagrams):
+    for idx, (ridge_x, _, _, _, _sample) in enumerate(diagrams):
         if ridge_x.numel() == 0:
             continue
 
@@ -243,7 +243,7 @@ def _calc_score(
     fp_sum = 0
     fn_sum = 0
 
-    for ridge_x, _sample in diagrams:
+    for ridge_x, _, _, _, _sample in diagrams:
         hit_gdf = _intersect_ridge_points_grid(
             learner=learner,
             grid=grid,
@@ -331,10 +331,10 @@ def score_model_plot(learner: "ActiveLearner"):
     gt_diagrams = learner.diagram_generator.diagrams(
         1, data_generator=learner.data_generator
     )
-    gt_item = next(gt_diagrams, None)
+    gt_item = gt_diagrams[0]
     if gt_item is None:
         raise RuntimeError("Ground-truth diagram generator returned no diagrams.")
-    gt_ridge_x, gt_sample = gt_item
+    gt_ridge_x, _, _, _, gt_sample = gt_item
 
     true_hits = _intersect_ridge_points_grid(
         learner=learner,
@@ -430,7 +430,7 @@ def score_model_plot(learner: "ActiveLearner"):
     # Plot MSTs + scoring boxes
     plot_mst_diagrams(
         learner=learner,
-        diagrams=iter([(gt_ridge_x, gt_sample)]),
+        diagrams=iter([(gt_ridge_x, _, _, _, gt_sample)]),
         ax=ax[0, 0],
         color="red",
         grid=scoring_grid,
