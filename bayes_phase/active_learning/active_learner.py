@@ -14,6 +14,7 @@ from bayes_phase.acquisition import MutualInformation
 from bayes_phase.models import means
 import scipy.stats as sps
 from tqdm import tqdm
+from time import time
 
 
 class ActiveLearner:
@@ -25,6 +26,7 @@ class ActiveLearner:
         config
             The config object.
         """
+        self._t0 = time()
         self.config = config
         self.data_generator = self._init_dataset()
         self.train_x, self.train_y_orig, self.train_y_sigma = self._init_train_data()
@@ -60,6 +62,7 @@ class ActiveLearner:
             # )
 
             # Run callbacks, e.g. for plotting, logging, etc.:
+            self._ti = time()
             self._run_callbacks()
 
     def _init_dataset(self) -> BaseDataGenerator:

@@ -14,7 +14,8 @@ def log(learner: "ActiveLearner"):
     hyps["lengthscale"] = learner.model.base_kernel.lengthscale.tolist()
     hyps["outputscale"] = learner.model.covar_module.outputscale.item()
     hyps["noise"] = learner.model.likelihood.noise.item()
-    hyps["mean"] = learner.model.mean_module.constant.item()
+    for name, param in learner.model.mean_module.named_parameters():
+        hyps[f"mean_{name}"] = param.tolist()
     log["hyperparameters"] = hyps
     log["wall_clock_time"] = learner._ti - learner._t0
 
