@@ -226,9 +226,12 @@ class ActiveLearner:
 
     def _init_model(self) -> TwiceDifferentiableModel:
         MeanModuleClass = getattr(means, self.config.mean_module)
+        lengthscale_prior = gpytorch.priors.LogNormalPrior(-1.5, 0.5)
         mean_module = MeanModuleClass(**self.config.mean_module_kwargs)
         BaseKernelClass = getattr(kernels, self.config.base_kernel)
-        base_kernel = BaseKernelClass(**self.config.base_kernel_kwargs)
+        base_kernel = BaseKernelClass(
+            lengthscale_prior=lengthscale_prior, **self.config.base_kernel_kwargs
+        )
         return TwiceDifferentiableModel(
             self.train_x, self.train_y, base_kernel, mean_module
         )
