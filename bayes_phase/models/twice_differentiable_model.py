@@ -410,9 +410,9 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         convergence_threshold: float = 0.05,
         damped_step_size: float = 0.1,  # damp updates https://tminka.github.io/papers/aspect/minka-aspect.pdf#:~:text=not%20always%20reach%20one,continues%20with%20the%20next%20term
         max_loops: int = 100,
+        return_unconverged: bool = False,
     ) -> Optional[
         tuple[
-        Float[
             torch.Tensor, "n2+ni+nd+nr"
         ],  # Posterior mean vector for function values at test points, first T-derivatives at increasing/decreasing points, and second T-derivatives at maxima
         Float[
@@ -448,6 +448,8 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         damped_step_size: Damping factor on updates to improve numerical stability.
 
         max_loops: Max number of EP iterations before EP is declared to have failed.
+
+        return_unconverged: Whether to return conditional mu and Sigma even after failure to converge.
 
         Returns:
         mean: Posterior mean of the joint vector: [f(x_test), f'(x_inc), f'(x_dec), f''(x_ridge)].
@@ -649,11 +651,13 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
             if verbose == True:
                 print("tau0 after clamp: ", tau0)
                 print("tau_tilde: ", tau_tilde)
-            tau_bar = tau0 - tau_tilde # Cavity precision
-            nu_bar = tau0 * mu - nu_tilde # Cavity nu
-            sigma_sq_bar = 1.0 / tau_bar # Cavity variance
-            sigma_bar = torch.sqrt(sigma_sq_bar) # Cavity standard deviation
-            mu_bar = nu_bar / tau_bar # Mean of the cavity Gaussian
+            tau_bar = tau0 - tau_tilde  # Cavity precision
+            nu_bar = tau0 * mu - nu_tilde  # Cavity nu
+            sigma_sq_bar = 1.0 / tau_bar  # Cavity variance
+            sigma_bar = torch.sqrt(
+                sigma_sq_bar.clamp_min(1e-30)
+            )  # Cavity standard deviation
+            mu_bar = nu_bar / tau_bar  # Mean of the cavity Gaussian
 
             if verbose == True:
                 print(
@@ -963,6 +967,8 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
             loops += 1
             if loops == max_loops:
                 print(f"EP failed to converge after {max_loops} iterations")
+                if return_unconverged:
+                    return mu_vec, Sigma
                 return None
 
     def transform_inputs(self, X):

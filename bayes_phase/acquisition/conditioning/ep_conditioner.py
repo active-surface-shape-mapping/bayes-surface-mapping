@@ -37,13 +37,17 @@ class EPConditioner(BaseConditioner):
             If there is an issue with conditioning.
         """
         peaks, valleys, increasing, decreasing, _ = diagram_output
-        if learner.config.use_2nd_derivs:
-            assert peaks is not None
-            if peaks.numel() == 0:
-                raise StopIteration("No peaks in sample.")
-        if learner.config.use_1st_derivs:
-            assert increasing is not None
-            assert decreasing is not None
+        assert peaks is not None
+        if peaks.numel() == 0:
+            raise StopIteration("No peaks in sample.")
+        if (increasing is not None) or (decreasing is not None):
+            damped_step_size = 0.005
+            max_loops = 20
+            convergence_threshold = 0.01
+        else:
+            damped_step_size = 0.05
+            max_loops = 50
+            convergence_threshold = 0.001
 
         # Condition on ridges using EP
         with torch.no_grad():
@@ -53,9 +57,10 @@ class EPConditioner(BaseConditioner):
                 x_inc=increasing,
                 x_dec=decreasing,
                 verbose=False,
-                damped_step_size=0.01,
-                max_loops=10,
-                convergence_threshold=0.00001,
+                damped_step_size=damped_step_size,
+                max_loops=max_loops,
+                convergence_threshold=convergence_threshold,
+                return_unconverged=True,
             )
         if out is None:
             # IF EP returned None -> skip

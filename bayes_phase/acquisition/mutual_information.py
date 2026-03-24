@@ -125,6 +125,7 @@ class MutualInformation:
             # )  # Before conditioning
             n_theta = self.learner.data_generator.theta_range + 1
             posterior_distrib = None
+            posterior_samples = None
             if ("posterior_mean" in info) and ("posterior_covariance" in info):
                 mu = info["posterior_mean"]
                 sigma = info["posterior_covariance"]
