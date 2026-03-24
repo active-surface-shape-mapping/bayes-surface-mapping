@@ -1,7 +1,13 @@
 from jaxtyping import Float
 import torch
 import gpytorch
+from typing import Callable
 from botorch.fit import fit_gpytorch_mll
+import scipy.stats as sps
+from tqdm import tqdm
+from time import time
+from pathlib import Path
+from jsonlines import jsonlines
 
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
@@ -12,9 +18,6 @@ from bayes_phase.acquisition import diagram_generation
 from bayes_phase.acquisition import EIG
 from bayes_phase.acquisition import MutualInformation
 from bayes_phase.models import means
-import scipy.stats as sps
-from tqdm import tqdm
-from time import time
 
 
 class ActiveLearner:
@@ -33,6 +36,7 @@ class ActiveLearner:
         self.train_y, self._y_mean, self._y_std = self._normalize_y(self.train_y_orig)
         self.model = self._init_model()
         self.diagram_generator = self._init_diagram_generator()
+        self.callbacks = self._init_callbacks()
         self._i = 0
 
     def optimize(self):
@@ -64,6 +68,8 @@ class ActiveLearner:
             # Run callbacks, e.g. for plotting, logging, etc.:
             self._ti = time()
             self._run_callbacks()
+            self._ti_callbacks = time()
+            self._log()
 
     def _init_dataset(self) -> BaseDataGenerator:
         """Initialize the data generator object.
@@ -364,10 +370,15 @@ class ActiveLearner:
         u_quantized = self.data_generator.transform_inputs(x)
         return u_quantized
 
+    def _init_callbacks(self) -> list[Callable[["ActiveLearner"], None]]:
+        cllbcks = []
+        for callback in self.config.callbacks:
+            cllbcks.append(getattr(callbacks, callback))
+        return cllbcks
+
     def _run_callbacks(self):
         """Run any per-step callbacks, e.g. for plotting, logging, etc."""
-        for callback in self.config.callbacks:
-            fn = getattr(callbacks, callback)
+        for fn in self.callbacks:
             fn(self)
 
     def _observe(
@@ -408,3 +419,22 @@ class ActiveLearner:
             **self.config.diagram_generator_kwargs,
         )
         return diagram_generator
+
+    def _log(self):
+        """Log relevant info."""
+        log = {}
+        hyps = {}
+        log["iteration"] = self._i
+        hyps["lengthscale"] = self.model.base_kernel.lengthscale.tolist()
+        hyps["outputscale"] = self.model.covar_module.outputscale.item()
+        hyps["noise"] = self.model.likelihood.noise.item()
+        for name, param in self.model.mean_module.named_parameters():
+            hyps[f"mean_{name}"] = param.tolist()
+        log["hyperparameters"] = hyps
+        log["wall_clock_time"] = self._ti - self._t0
+        log["callback_time_iter"] = self._ti_callbacks - self._ti
+
+        savepath = Path(self.config.base_savepath) / "logs.json"
+        savepath.parent.mkdir(exist_ok=True, parents=True)
+        with jsonlines.open(savepath, mode="a") as writer:
+            writer.write(log)

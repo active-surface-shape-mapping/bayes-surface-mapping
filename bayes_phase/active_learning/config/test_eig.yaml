@@ -3,7 +3,7 @@ callbacks:
   - plot
   - plot3d
   - plot_acq
-  - log
+  - score_model_plot
 init_n_points: 20
 global_seed: 666
 init_data_strategy: SOBOL
