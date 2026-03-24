@@ -1,9 +1,22 @@
-acquisition_function: mutual_information
 callbacks:
   - plot
   - plot3d
   - plot_acq
+  - log
 init_n_points: 20
-init_data_strategy: sobol
-cand_data_strategy: sobol
-n_iters: 20
+global_seed: 666
+init_data_strategy: SOBOL
+cand_data_strategy: SOBOL
+diagram_generator: FIND_PEAKS
+n_iters: 380
+n_mc_samples: 30
+use_1st_derivs: True
+use_2nd_derivs: True
+base_kernel_kwargs:
+  ard_num_dims: 2
+iter_n_candidates: 300
+mi_conditioning_strategy: ESS
+ess_n_samples: 1000
+ess_burnin: 500
+ess_thin: 1
+mean_module: CONSTANT
