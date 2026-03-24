@@ -1,6 +1,10 @@
 import torch
 from jaxtyping import Float
 from .acquisition_utilities import posterior_latent, entropy_over_representer_set
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bayes_phase.active_learning import ActiveLearner
 
 # FIXME: Noise approach between MI and EIG in this draft may be inconsistent.
 #        Confirm whether acquisition should condition on noisy or latent values.
@@ -18,12 +22,13 @@ class EIG:
 
     def __init__(
         self,
+        learner: "ActiveLearner",
     ):
-        pass
+        self.learner = learner
 
-    def forward(self, learner: "ActiveLearner") -> Float[torch.Tensor, "m "]:
-        model = learner.model
-        X = learner.cand_x
+    def forward(self, X: Float[torch.Tensor, "m d"], ) -> Float[torch.Tensor, " m"]:
+        model = self.learner.model
+        X = self.learner.cand_x
 
         model.eval()
         model.likelihood.eval()
@@ -57,6 +62,6 @@ class EIG:
 
     def __call__(
         self,
-        learner,
+        X: Float[torch.Tensor, "m d"],
     ) -> Float[torch.Tensor, "m"]:
-        return self.forward(learner)
+        return self.forward(X)

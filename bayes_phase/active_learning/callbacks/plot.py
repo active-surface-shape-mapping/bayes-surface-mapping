@@ -16,7 +16,7 @@ def plot_diagrams(
     ax: Axes,
     color: Optional[str] = None,
 ):
-    for diagram, sample in diagrams:
+    for diagram, _, _, _, sample in diagrams:
         # x = (
         #     diagram[:, 0] * learner.data_generator.temp_range
         #     + learner.data_generator.min_temp
@@ -80,10 +80,10 @@ def plot(learner: "ActiveLearner"):
 
     # Plot phase diagram boundaries
     gt_diagrams = learner.diagram_generator.diagrams(
-        10, data_generator=learner.data_generator
+        10, data_generator=learner.data_generator, debug_plot=False
     )
     plot_diagrams(learner, gt_diagrams, ax[0, 0], color="red")
-    diagrams = learner.diagram_generator.diagrams(10)
+    diagrams = learner.diagram_generator.diagrams(10, debug_plot=False)
     plot_diagrams(learner, diagrams, ax[0, 1])
 
     plt.tight_layout()

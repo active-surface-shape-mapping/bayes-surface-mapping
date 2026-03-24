@@ -129,6 +129,13 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         f_pred = f_pred.reshape((3, -1)).to_dense().T
         prior_pred_mean = self.mean_module(x)
         f_pred[:, 0] += prior_pred_mean
+        if not (
+            isinstance(self.mean_module, gpytorch.means.ZeroMean)
+            or isinstance(self.mean_module, gpytorch.means.ConstantMean)
+        ):
+            prior_pred_derivatives = self.mean_module.derivatives(x)
+            f_pred[:, 1] += prior_pred_derivatives[0]
+            f_pred[:, 2] += prior_pred_derivatives[1]
         # (Co)variance computation:
         if compute_covariance == "full":
             # Return full covariance matrix between observations and temperature derivatives
@@ -204,7 +211,11 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         covariance: Posterior covariance of the joint vector: [f(x_test), f'(x_inc), f'(x_dec), f''(x_ridge)].
 
         """
-
+        if not (
+            isinstance(self.mean_module, gpytorch.means.ZeroMean)
+            or isinstance(self.mean_module, gpytorch.means.ConstantMean)
+        ):
+            raise ValueError("Conditioning not yet implemented for non-constant mean.")
         o = self.covar_module.outputscale
 
         # Input handling
@@ -445,6 +456,11 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
 
         """
         # Input handling
+        if not (
+            isinstance(self.mean_module, gpytorch.means.ZeroMean)
+            or isinstance(self.mean_module, gpytorch.means.ConstantMean)
+        ):
+            raise ValueError("Conditioning not yet implemented for non-constant mean.")
         if x_ridge is None:
             if maximum_locs is None:
                 raise ValueError("Provide either x_ridge or maximum_locs.")

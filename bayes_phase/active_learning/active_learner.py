@@ -268,8 +268,8 @@ class ActiveLearner:
 
         # EIG
         elif self.config.acquisition_function == "eig":
-            eig = EIG()
-            scores = eig(self)
+            eig = EIG(self)
+            scores = eig(self.cand_x)
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx : best_idx + 1]
@@ -278,8 +278,8 @@ class ActiveLearner:
 
         # Mutual information
         elif self.config.acquisition_function == "mutual_information":
-            mi = MutualInformation()
-            scores = mi(self)
+            mi = MutualInformation(self)
+            scores = mi(self.cand_x)
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx : best_idx + 1]

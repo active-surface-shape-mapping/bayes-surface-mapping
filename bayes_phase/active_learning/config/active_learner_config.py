@@ -52,7 +52,13 @@ class AcquisitionFunction(StrEnum):
 
 class DiagramGenerator(StrEnum):
     FIND_PEAKS = "FindPeaksDiagramGenerator"
+    FIND_PEAKS_AND_VALLEYS = "FindPeaksAndValleysDiagramGenerator"
     SPLINE = "SplineDiagramGenerator"
+
+
+class MIConditioningStrategy(StrEnum):
+    EP = "EP"
+    ESS = "ESS"
 
 
 @dataclass
@@ -74,6 +80,10 @@ class ActiveLearnerConfig:
     base_kernel: BaseKernel = BaseKernel.MATERN
     base_kernel_kwargs: dict[str, Any] = field(default_factory=dict)
     acquisition_function: AcquisitionFunction = AcquisitionFunction.MI
+    mi_conditioning_strategy: Optional[MIConditioningStrategy] = None
+    ess_burnin: Optional[int] = None
+    ess_n_samples: Optional[int] = None
+    ess_thin: Optional[int] = None
     callbacks: list[str] = field(default_factory=list)
     use_log_transform: bool = True
     base_savepath: str = field(default_factory=timestamp_path)
