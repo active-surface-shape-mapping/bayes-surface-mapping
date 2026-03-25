@@ -1,0 +1,20 @@
+callbacks:
+  - plot
+  - plot3d
+  - plot_acq
+  - score_model_plot
+init_n_points: 20
+global_seed: 666
+init_data_strategy: SOBOL
+cand_data_strategy: SOBOL
+diagram_generator: FIND_PEAKS_AND_VALLEYS
+n_iters: 380
+n_mc_samples: 30
+base_kernel_kwargs:
+  ard_num_dims: 2
+iter_n_candidates: 300
+mi_conditioning_strategy: ESS
+ess_n_samples: 2000
+ess_burnin: 1000
+ess_thin: 1
+mean_module: CONSTANT
