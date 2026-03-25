@@ -34,9 +34,9 @@ def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") ->
     keep = theta_idx[i] != theta_idx[j] 
     i, j = i[keep], j[keep]
 
-    # Limit connections across an excessive range of temperatures, for visual clarity
-    dT = (x[i, 0] - x[j, 0]).abs()
-    keep2 = dT <= learner.config.max_T_span
+    # Limit connections across an excessive range of values
+    dist = (x[i] - x[j]).norm(dim=1)
+    keep2 = dist <= learner.config.max_tree_conn_dist
     i, j = i[keep2], j[keep2]
 
     # Weight by full Euclidean distance in (T_norm, theta_norm):
@@ -179,7 +179,7 @@ def _intersect_ridge_points_grid(
     return hits
 
 
-def _plot_metrics_over_iterations(
+def _plot_metrics_by_iteration(
     learner: "ActiveLearner",
     csv_path: Path) -> None:
     """Plot precision, recall, and F1 scores by iteration."""
@@ -189,9 +189,9 @@ def _plot_metrics_over_iterations(
     colors = plt.get_cmap("Set1").colors
 
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(df["iteration"], df["recall"], linewidth = 1, marker="d", markersize = 3, label="Recall", color = colors[0])
-    ax.plot(df["iteration"], df["precision"], linewidth = 1, marker="d", markersize = 3, label="Precision", color = colors[1])
-    ax.plot(df["iteration"], df["f1"], linewidth = 1, marker="d", markersize = 3, label="F1 score", color = colors[2])
+    ax.plot(df["iteration"], df["recall"], linewidth = 1, label="Recall", color = colors[0])
+    ax.plot(df["iteration"], df["precision"], linewidth = 1, label="Precision", color = colors[1])
+    ax.plot(df["iteration"], df["f1"], linewidth = 1, label="F1 score", color = colors[2])
 
 
     if learner.config.acquisition_function == "random":
@@ -208,7 +208,7 @@ def _plot_metrics_over_iterations(
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Score")
-    ax.set_title(f"Performance over iterations: {literate_acquisition_function}")
+    ax.set_title(f"Performance by iteration: {literate_acquisition_function}")
     ax.set_ylim(0.0, 1.0)
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -299,7 +299,7 @@ def _calc_score(
     else:
         df.to_csv(metrics_savepath, mode="w", header=True, index=False)
 
-    _plot_metrics_over_iterations(learner, metrics_savepath)
+    _plot_metrics_by_iteration(learner, metrics_savepath)
     return metrics
 
 
