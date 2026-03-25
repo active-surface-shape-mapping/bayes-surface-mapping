@@ -14,7 +14,7 @@ base_kernel_kwargs:
   ard_num_dims: 2
 iter_n_candidates: 300
 mi_conditioning_strategy: ESS
-ess_n_samples: 1000
-ess_burnin: 500
+ess_n_samples: 2000
+ess_burnin: 1000
 ess_thin: 1
 mean_module: CONSTANT

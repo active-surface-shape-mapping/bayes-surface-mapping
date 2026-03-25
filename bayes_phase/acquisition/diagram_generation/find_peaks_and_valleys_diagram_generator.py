@@ -20,7 +20,7 @@ class FindPeaksAndValleysDiagramGenerator(BaseDiagramGenerator):
     def __init__(
         self,
         learner: "ActiveLearner",
-        n_temp_grid: int = 40,
+        n_temp_grid: int = 30,
         jitter: float = 1e-12,
         max_n_peaks: Optional[int] = 2,
     ):

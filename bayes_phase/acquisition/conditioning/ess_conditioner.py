@@ -106,13 +106,39 @@ class ESSConditioner(BaseConditioner):
                 wrong_peaks_2 = second_derivs_peaks[second_derivs_peaks >= 0.0]
                 wrong_valleys_2 = second_derivs_valleys[second_derivs_valleys <= 0.0]
                 # TODO: FIXME: Currently only using first derivatives, sampling is too slow to converge otherwise.
+                increasing_penalty = torch.tensor(0.0)
+                decreasing_penalty = torch.tensor(0.0)
+                peak_first_deriv_penalty = torch.tensor(0.0)
+                peak_second_deriv_penalty = torch.tensor(0.0)
+                valley_first_deriv_penalty = torch.tensor(0.0)
+                valley_second_deriv_penalty = torch.tensor(0.0)
+                if wrong_incs.numel() > 0:
+                    increasing_penalty = -((k * (wrong_incs.abs() + b)) ** p).mean()
+                if wrong_decs.numel() > 0:
+                    decreasing_penalty = -((k * (wrong_decs.abs() + b)) ** p).mean()
+                if wrong_peaks_1.numel() > 0:
+                    peak_first_deriv_penalty = -(
+                        (k * (wrong_peaks_1.abs() + 0.0)) ** p
+                    ).mean()
+                if wrong_peaks_2.numel() > 0:
+                    peak_second_deriv_penalty = -(
+                        (k * (wrong_peaks_2.abs() + b)) ** p
+                    ).mean()
+                if wrong_valleys_1.numel() > 0:
+                    valley_first_deriv_penalty = -(
+                        (k * (wrong_valleys_1.abs() + 0.0)) ** p
+                    ).mean()
+                if wrong_valleys_2.numel() > 0:
+                    valley_second_deriv_penalty = -(
+                        (k * (wrong_valleys_2.abs() + b)) ** p
+                    ).mean()
                 return (
-                    -((k * (wrong_incs.abs() + b)) ** p).mean()
-                    - ((k * (wrong_decs.abs() + b)) ** p).mean()
-                    - ((k * (wrong_peaks_1.abs() + b)) ** p).mean()
-                    - ((k * (wrong_valleys_1.abs() + b)) ** p).mean()
-                    # - ((k * (wrong_peaks_2.abs() + b)) ** p).mean()
-                    # - ((k * (wrong_valleys_2.abs() + b)) ** p).mean()
+                    increasing_penalty
+                    + decreasing_penalty
+                    + peak_first_deriv_penalty
+                    # + peak_second_deriv_penalty
+                    + valley_first_deriv_penalty
+                    # + valley_second_deriv_penalty
                 )
 
             sampler = None
