@@ -413,11 +413,12 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         return_unconverged: bool = False,
     ) -> Optional[
         tuple[
-            torch.Tensor, "n2+ni+nd+nr"
-        ],  # Posterior mean vector for function values at test points, first T-derivatives at increasing/decreasing points, and second T-derivatives at maxima
-        Float[
-            torch.Tensor, "n2+ni+nd+nr n2+ni+nd+nr"
-        ],  # Posterior covariance for function values at test points, first T-derivatives at increasing/decreasing points, and second T-derivatives at maxima
+            Float[
+                torch.Tensor, "n2+ni+nd+nr"
+            ],  # Posterior mean vector for function values at test points, first T-derivatives at increasing/decreasing points, and second T-derivatives at maxima
+            Float[
+                torch.Tensor, "n2+ni+nd+nr n2+ni+nd+nr"
+            ],  # Posterior covariance for function values at test points, first T-derivatives at increasing/decreasing points, and second T-derivatives at maxima
         ]
     ]:
 

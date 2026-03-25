@@ -120,7 +120,7 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self,
         n_diagrams: int,
         plot: bool = False,
-        plot_full_every: Optional[int] = 10,
+        plot_full_every: Optional[int] = None,
         **kwargs,
     ) -> list[DiagramOutput]:
         """Get a list of phase diagram boundaries.

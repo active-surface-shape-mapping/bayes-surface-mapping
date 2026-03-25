@@ -33,7 +33,7 @@ class MutualInformation:
         self.conditioner = self._init_conditioner()
 
     def forward(
-        self, X: Float[torch.Tensor, "n d"], plot_every: Optional[int] = 10
+        self, X: Float[torch.Tensor, "n d"], plot_every: Optional[int] = 50
     ) -> Float[torch.Tensor, "m "]:
         n_mc_samples = int(self.learner.config.n_mc_samples)
 

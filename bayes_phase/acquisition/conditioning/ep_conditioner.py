@@ -46,7 +46,7 @@ class EPConditioner(BaseConditioner):
             convergence_threshold = 0.01
         else:
             damped_step_size = 0.05
-            max_loops = 50
+            max_loops = 20
             convergence_threshold = 0.001
 
         # Condition on ridges using EP

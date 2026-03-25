@@ -89,3 +89,4 @@ class ActiveLearnerConfig:
     base_savepath: str = field(default_factory=timestamp_path)
     diagram_generator: DiagramGenerator = DiagramGenerator.FIND_PEAKS
     diagram_generator_kwargs: dict[str, Any] = field(default_factory=dict)
+    only_use_peaks: bool = False

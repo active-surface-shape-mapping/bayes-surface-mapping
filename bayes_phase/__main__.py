@@ -11,15 +11,19 @@ from bayes_phase.active_learning.active_learner import (
 
 parser = ArgumentParser()
 parser.add_argument("--config", "-c", type=Path, help="The path to the config file.")
+parser.add_argument("--overrides", type=str, nargs="*", help="Config file overrides, in key=value format.")
 if __name__ == "__main__":
     # Get configuration
     args = parser.parse_args()
     schema = OmegaConf.structured(ActiveLearnerConfig)
     if args.config is not None:
         conf = OmegaConf.load(args.config)
+        if args.overrides is not None:
+            conf.merge_with_dotlist(args.overrides)
         config = OmegaConf.merge(schema, conf)
     else:
         config = schema
+    print(config)
 
     # Update savepath to include name of acquisition function (for easy bookkeeping)
     base_savepath = Path(config.base_savepath)
