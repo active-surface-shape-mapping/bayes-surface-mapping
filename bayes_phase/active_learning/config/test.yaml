@@ -1,9 +1,0 @@
-acquisition_function: random
-callbacks:
-  - plot
-init_n_points: 20
-init_data_strategy: sobol
-n_iters: 2
-# mean_module: LINEAR
-# mean_module_kwargs:
-#   input_size: 2

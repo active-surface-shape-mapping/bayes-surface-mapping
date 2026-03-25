@@ -1,13 +1,18 @@
 # Overview
 This is the repo for the Bayes-phase project (work-in-progress).
-## TODOs:
-### Current:
-  1. Implement mutual-information acquisition function.
-     1. Write tests for acquisition function.
-  2. Implement active learning loop.
-  3. Basic shakedown run with synthetic data.
-  4. Compare different approaches to generating phase diagram (optimization vs. thresholding of GP partial derivatives).
-### Eventual:
-  1. Flesh out comments and docstrings.
-### Potential:
-  1. Use ``gpytorch.kernels.RBFGradGrad`` in batch-mode for faster computation of posterior variance.
+# Installation
+```sh
+git clone git@github.com:Bobby-Huggins/bayes-phase.git
+cd bayes-phase
+uv sync
+uv pip install -e .
+```
+# Usage
+To run using the [hydra](https://hydra.cc/) experiment config library:
+```sh
+uv run python -m bayes_phase 'experiment=test_eig'
+```
+To run multiple experiments at once:
+```sh
+uv run python -m bayes_phase -m 'experiment=test_eig,test_mutual_information_ep' 'experiment.global_seed=range(0,5)'
+```

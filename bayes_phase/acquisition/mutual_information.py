@@ -31,11 +31,13 @@ class MutualInformation:
     def __init__(self, learner: "ActiveLearner"):
         self.learner = learner
         self.conditioner = self._init_conditioner()
+        if self.learner.config.mi_n_mc_samples is None:
+            raise ValueError("`mi_n_mc_samples` must be set in config.")
 
     def forward(
         self, X: Float[torch.Tensor, "n d"], plot_every: Optional[int] = 50
     ) -> Float[torch.Tensor, "m "]:
-        n_mc_samples = int(self.learner.config.n_mc_samples)
+        n_mc_samples = int(self.learner.config.mi_n_mc_samples)
 
         # # ---- H(Y): baseline entropy at each candidate (univariate Gaussian) ----
         # with torch.no_grad():
@@ -51,7 +53,7 @@ class MutualInformation:
         )  # (m,)
 
         # ---- Sample functions to induce ridge hypotheses ----
-        mc_samples = self.learner.diagram_generator.diagrams(n_mc_samples)
+        mc_samples = self.learner.diagram_generator.diagrams(n_mc_samples, debug_plot=True)
 
         # ---- Monte Carlo estimate of E[ H(Y | ridge) ] ----
         H_cond_sum = torch.zeros_like(H_base)

@@ -1,0 +1,6 @@
+defaults:
+  - test_base_experiment
+acquisition_function: MI
+mi_conditioning_strategy: EP
+mi_n_mc_samples: 30
+only_use_peaks: true

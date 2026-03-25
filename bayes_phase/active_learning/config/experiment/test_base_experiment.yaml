@@ -1,17 +1,14 @@
-acquisition_function: EIG
 callbacks:
   - plot
   - plot3d
   - plot_acq
   - score_model_plot
-init_n_points: 20
+init_n_points: 5
 global_seed: 666
 init_data_strategy: SOBOL
 cand_data_strategy: SOBOL
 diagram_generator: FIND_PEAKS_AND_VALLEYS
-n_iters: 380
-n_mc_samples: 30
+n_iters: 2
 base_kernel_kwargs:
   ard_num_dims: 2
 iter_n_candidates: 300
-mean_module: CONSTANT

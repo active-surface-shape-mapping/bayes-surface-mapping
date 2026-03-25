@@ -1,0 +1,3 @@
+defaults:
+  - test_base_experiment
+acquisition_function: EIG

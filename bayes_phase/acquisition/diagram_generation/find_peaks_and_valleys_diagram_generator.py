@@ -65,7 +65,7 @@ class FindPeaksAndValleysDiagramGenerator(BaseDiagramGenerator):
         self,
         data_generator: Optional[BaseDataGenerator] = None,
         use_log_transform: bool = True,
-        debug_plot: bool = True,
+        debug_plot: bool = False,
         plot_every: Optional[int] = 50,
         **kwargs,
     ) -> DiagramOutput:

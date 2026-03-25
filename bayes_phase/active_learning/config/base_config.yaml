@@ -1,0 +1,4 @@
+defaults:
+  - experiment: ???
+  - override hydra/launcher: joblib
+  - _self_
