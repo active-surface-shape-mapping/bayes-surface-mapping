@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 import numpy as np
 import pandas as pd
+
 import shapely as shp
 import geopandas as gpd
 
@@ -127,18 +128,29 @@ def _intersect_ridge_points_grid(
 
 def _plot_metrics_by_iteration(
     learner: "ActiveLearner",
-    csv_path: Path) -> None:
-    """Plot precision, recall, and F1 scores by iteration."""
+    csv_path: Path,
+) -> None:
+    """Plot score metrics by iteration."""
     df = pd.read_csv(csv_path)
     df = df.sort_values("iteration")
 
     colors = plt.get_cmap("Set1").colors
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(df["iteration"], df["recall"], linewidth = 1, label="Recall", color = colors[0])
-    ax.plot(df["iteration"], df["precision"], linewidth = 1, label="Precision", color = colors[1])
-    ax.plot(df["iteration"], df["f1"], linewidth = 1, label="F1 score", color = colors[2])
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
 
+    # Left panel: recall / precision / F1
+    ax[0].plot(
+        df["iteration"], df["recall"],
+        linewidth=1, label="Recall", color=colors[0]
+    )
+    ax[0].plot(
+        df["iteration"], df["precision"],
+        linewidth=1, label="Precision", color=colors[1]
+    )
+    ax[0].plot(
+        df["iteration"], df["f1"],
+        linewidth=1, label="F1 score", color=colors[2]
+    )
 
     if learner.config.acquisition_function == "random":
         literate_acquisition_function = "Random sampling"
@@ -151,15 +163,36 @@ def _plot_metrics_by_iteration(
     else:
         literate_acquisition_function = learner.config.acquisition_function
 
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Score")
-    ax.set_title(f"Performance by iteration: {literate_acquisition_function}")
-    ax.set_ylim(0.0, 1.0)
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax[0].xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax[0].set_xlabel("Iteration")
+    ax[0].set_ylabel("Score")
+    ax[0].set_title("Recall, precision, and F1 score")
+    ax[0].set_ylim(0.0, 1.0)
+    ax[0].grid(True, alpha=0.3)
+    ax[0].legend()
+
+    # Right panel: log likelihood
+    ax[1].plot(
+        df["iteration"],
+        df["log_likelihood"],
+        linewidth=1,
+        color="purple",
+        label="Log likelihood",
+    )
+    ax[1].xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax[1].set_xlabel("Iteration")
+    ax[1].set_ylabel("Log likelihood")
+    ax[1].set_title("Log likelihood")
+    ax[1].grid(True, alpha=0.3)
+    ax[1].legend()
+
+    fig.suptitle(
+        f"Performance by iteration: {literate_acquisition_function}",
+        fontsize=12,
+    )
 
     fig.tight_layout()
+    fig.subplots_adjust(top=0.88)
     fig.savefig(csv_path.parent / "score_metrics.png", dpi=150)
     plt.close(fig)
 
@@ -168,6 +201,8 @@ def _calc_score(
     grid: gpd.GeoDataFrame,
     true_idx: set[int],
     diagrams: list[DiagramOutput],
+    alpha: float = 1.0,
+    hit_counts: Optional[np.ndarray] = None,
 ) -> dict[str, float | int]:
     """Calculate and save scores by iteration."""
     n_scoring_samples = len(diagrams)
@@ -188,6 +223,10 @@ def _calc_score(
     tp_sum = 0
     fp_sum = 0
     fn_sum = 0
+
+    # Per-cell hit counts across posterior diagrams
+    if hit_counts is None:
+        hit_counts = _compute_hit_counts(learner, grid, diagrams)
 
     for out in diagrams:
         ridge_x = out.peaks
@@ -220,6 +259,21 @@ def _calc_score(
         fp_sum += fp
         fn_sum += fn
 
+
+    hit_prob = (hit_counts + alpha) / (n_scoring_samples + 2 * alpha)
+
+    true_mask = np.zeros(len(grid), dtype=np.float64)
+    true_mask[list(true_idx)] = 1.0
+
+    # Log likelihood of the truth, assuming independent Bernoulli.
+    log_likelihood = np.sum(
+        true_mask * np.log(hit_prob) +
+        (1.0 - true_mask) * np.log(1.0 - hit_prob)
+    )
+
+    # Log likelihood/# grid cells, which can be easier to compare across grid sizes
+    mean_log_likelihood = log_likelihood / len(grid)
+
     metrics = {
         "iteration": int(learner._i),
         "acquisition": str(learner.config.acquisition_function),
@@ -232,6 +286,8 @@ def _calc_score(
         "recall": recall_sum / n_scoring_samples,
         "precision": precision_sum / n_scoring_samples,
         "f1": f1_sum / n_scoring_samples,
+        "log_likelihood": float(log_likelihood),
+        "mean_log_likelihood": float(mean_log_likelihood),
     }
 
     metrics_savepath = (
@@ -257,6 +313,7 @@ def _compute_grid_probs(
     grid: gpd.GeoDataFrame,
     diagrams: list[DiagramOutput],
     alpha: float = 1.0,
+    hit_counts: Optional[np.ndarray] = None,
 ) -> gpd.GeoDataFrame:
     """
     Compute Laplace-smoothed probability that each grid cell contains
@@ -271,22 +328,8 @@ def _compute_grid_probs(
         raise RuntimeError("No diagrams provided for probability computation.")
 
     # Initialize counts for each grid cell
-    hit_counts = np.zeros(len(grid), dtype=np.int64)
-
-    for out in diagrams:
-        ridge_x = out.peaks
-
-        hit_gdf = _intersect_ridge_points_grid(
-            learner=learner,
-            grid=grid,
-            ridge_x=ridge_x,
-        )
-
-        # Ensure each diagram contributes at most one hit per cell
-        pred_idx = set(hit_gdf.index.tolist())
-
-        for idx in pred_idx:
-            hit_counts[idx] += 1
+    if hit_counts is None:
+        hit_counts = _compute_hit_counts(learner, grid, diagrams)
 
     # Laplace-smoothed empirical hit probability per cell
     # p = (c + alpha) / (N + 2*alpha)
@@ -300,7 +343,28 @@ def _compute_grid_probs(
     return grid_out
 
 
+def _compute_hit_counts(
+    learner: "ActiveLearner",
+    grid: gpd.GeoDataFrame,
+    diagrams: list[DiagramOutput],
+) -> np.ndarray:
+    """Count how many sampled diagrams hit each grid cell."""
+    hit_counts = np.zeros(len(grid), dtype=np.int64)
 
+    for out in diagrams:
+        ridge_x = out.peaks
+
+        hit_gdf = _intersect_ridge_points_grid(
+            learner=learner,
+            grid=grid,
+            ridge_x=ridge_x,
+        )
+
+        pred_idx = set(hit_gdf.index.tolist())
+        for idx in pred_idx:
+            hit_counts[idx] += 1
+
+    return hit_counts
 
 def score_model_plot(learner: "ActiveLearner"):
     """Overall function to calculate and save scores, along with plots illustrating the scoring process."""
@@ -323,8 +387,8 @@ def score_model_plot(learner: "ActiveLearner"):
         y_pred = learner.model(eval_grid)
     y_pred_mean = y_pred.mean * learner._y_std + learner._y_mean
 
-    # Build scoring grid in physical units
-    scoring_grid = _generate_grid(learner)
+    # Build scoring grid in physical units. Reset index
+    scoring_grid = _generate_grid(learner).reset_index(drop=True)
 
     # Get ground-truth diagram, determine true scoring boxes
     gt_diagrams = learner.diagram_generator.diagrams(
@@ -346,18 +410,30 @@ def score_model_plot(learner: "ActiveLearner"):
         learner.diagram_generator.diagrams(learner.config.n_scoring_samples)
     )
 
+    hit_counts = _compute_hit_counts(
+        learner=learner,
+        grid=scoring_grid,
+        diagrams=posterior_diagrams,
+    )
+
+
+    alpha = 1.0
+
     metrics = _calc_score(
         learner=learner,
         grid=scoring_grid,
         true_idx=true_idx,
         diagrams=posterior_diagrams,
+        alpha=alpha,
+        hit_counts=hit_counts,
     )
 
     grid_probs = _compute_grid_probs(
         learner=learner,
         grid=scoring_grid,
         diagrams=posterior_diagrams,
-        alpha=1.0,
+        alpha=alpha,
+        hit_counts=hit_counts,
     )
 
     # Plot setup
@@ -424,14 +500,17 @@ def score_model_plot(learner: "ActiveLearner"):
     grid_probs.plot(
         column="hit_prob",
         ax=ax[0, 2],
-        cmap="Blues",
+        cmap="berlin",
         linewidth=0,
         legend=False,
         vmin=0.0,
         vmax=1.0,
         zorder=1,
     )
-    ax[0, 2].set_title("Ridge point probability")
+    ax[0, 2].set_title(
+        f"Ridge point probability\n"
+        f"Log likelihood={metrics['log_likelihood']:.3f}"
+    )
     ax[0, 2].set_aspect("auto")
 
     # Training data and newest selected point on right panel
@@ -489,7 +568,7 @@ def score_model_plot(learner: "ActiveLearner"):
 
 
     norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
-    sm = mpl.cm.ScalarMappable(norm=norm, cmap="Blues")
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap="berlin")
     sm.set_array([])
 
     cbar = fig.colorbar(sm, ax=ax[0, :], fraction=0.025, pad=0.02)
