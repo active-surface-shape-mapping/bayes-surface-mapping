@@ -1,9 +1,12 @@
+import numpy as np
 import torch
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from pathlib import Path
 from typing import Iterator, Optional
+from scipy.interpolate import make_splprep, splev
+
 
 from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
     DiagramOutput,
@@ -28,12 +31,12 @@ def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") ->
     keep = theta_idx[i] != theta_idx[j] 
     i, j = i[keep], j[keep]
 
-    # Limit connections across an excessive range of temperatures, for visual clarity
-    dT = (x[i, 0] - x[j, 0]).abs()
-    keep2 = dT <= learner.config.max_T_span
+    # Limit connections across an excessive range of values
+    dist = (x[i] - x[j]).norm(dim=1)
+    keep2 = dist <= learner.config.max_tree_conn_dist
     i, j = i[keep2], j[keep2]
 
-    # Weight by full Euclidean distance in (T_norm, theta_norm):
+    # Weight by Euclidean distance in (T_norm, theta_norm):
     w = (x[i] - x[j]).norm(dim=1).tolist()
 
     # Generate MST
@@ -50,24 +53,245 @@ def _plot_mst_diagrams(
     ax: Axes,
     color: Optional[str] = None,
 ):
+    """Plots MSTs or MST-consistent smooth curves."""
+
     # Separate colors per sample
     cmap = plt.get_cmap("tab10")
     n_theta = learner.data_generator.theta_range
 
-    for k, (diagram, _sample) in enumerate(diagrams):
+    for k, out in enumerate(diagrams):
+        diagram = out.peaks        # (n, 2) points in normalized space
+        sample = out.sample        
         c = color if color is not None else cmap(k % 10)
 
         edges = _create_mst(diagram, n_theta=n_theta, learner = learner)
 
         xys = learner.data_generator.untransform_inputs(diagram)  # plot in physical units
+
         # Optional: dots at ridge points
-        ax.scatter(xys[:, 0], xys[:, 1], s=11, color=c)
+        if learner.config.show_points_tree_graphs == True:
+            ax.scatter(xys[:, 0], xys[:, 1], s=5, color=c)
 
-        for a, b in edges.tolist():
-            ax.plot(xys[[a, b], 0], xys[[a, b], 1], color=c, lw=1)
+        if learner.config.tree_graph_type == "MST":
+            for a, b in edges.tolist():
+                ax.plot(xys[[a, b], 0], xys[[a, b], 1], color=c, lw=1)
+        
+        elif learner.config.tree_graph_type == "CubicSpline":
+            branches = _identify_branches(ridge_points=xys, edges=edges)
+            splines = _fit_mst_curves(branches)
+
+            for spline in splines:
+                for seg in spline["segments"]:
+                    t = np.linspace(0.0, 1.0, 100) # sample points along a segment
+
+                    # Hermite basis functions.
+                    # The cubic curves are a function of these.
+                    h00 = 2 * t**3 - 3 * t**2 + 1
+                    h10 = t**3 - 2 * t**2 + t
+                    h01 = -2 * t**3 + 3 * t**2
+                    h11 = t**3 - t**2
+
+                    # xy_smooth is the hermite
+                    xy_smooth = ( 
+                        h00[:, None] * seg["p0"] # Scaling
+                        + h10[:, None] * seg["h"] * seg["m0"]
+                        + h01[:, None] * seg["p1"]
+                        + h11[:, None] * seg["h"] * seg["m1"]
+                    )
+
+                    ax.plot(
+                        xy_smooth[:, 0],
+                        xy_smooth[:, 1],
+                        color=c,
+                        linewidth=1.0,
+                        alpha=0.8,
+                    )
+
+        else:
+            raise ValueError("Valid tree plot types are MST and CubicSpline.")
 
 
-def plot_mst(learner: "ActiveLearner"):
+def _identify_branches(
+    ridge_points,
+    edges,
+):
+    """Subdivide phase diagram boundaries into branches to make it possible to fit a spline for each branch."""
+
+    n_points = len(ridge_points)
+
+    # Outer loop: Loop through points.
+
+    # Inner loop: Loop through edges and count the connections to each point.
+    neighbors = {i: [] for i in range(n_points)}
+    for a, b in edges.tolist():
+        neighbors[a].append(b)
+        neighbors[b].append(a)
+
+    # Classify points in the following categories.
+    # A point with one connection is a branch endpoint.
+    endpoints = [i for i in range(n_points) if len(neighbors[i]) == 1]
+    # A point with more than two connections is a split point (ex. the triple point).
+    split_points = [i for i in range(n_points) if len(neighbors[i]) > 2]
+
+    # Classify all connections as unexplored. Initialize branches object.
+    unexplored = {frozenset((a, b)) for a, b in edges.tolist()} # Frozensest treats edges as unordered.
+    branches = []
+
+    def trace_branch(start_idx, next_idx):
+        branch = [start_idx]
+        prev_idx = start_idx
+        curr_idx = next_idx
+
+        while True:
+            edge = frozenset((prev_idx, curr_idx))
+            if edge not in unexplored:
+                break
+            unexplored.remove(edge)
+            branch.append(curr_idx)
+
+            if curr_idx in endpoints or curr_idx in split_points:
+                break
+
+            candidates = [j for j in neighbors[curr_idx] if j != prev_idx]
+            if not candidates:
+                break
+
+            prev_idx, curr_idx = curr_idx, candidates[0]
+
+        return branch
+
+    # Outer loop: Over split points. We will walk outward from split points to identify branches.
+    for split_idx in split_points:
+
+        # Nested loop: Over the connections of the current split point.
+        for next_idx in neighbors[split_idx]:
+            edge = frozenset((split_idx, next_idx))
+            if edge not in unexplored:
+                continue
+
+            # Inner loop: Along branch connections for this branch.
+            # Find the next unexplored connection and set the point at its end as the new active point.
+            # Repeat until we reach an endpoint.
+            branch_indices = trace_branch(split_idx, next_idx)
+
+            # Record the points along the branch.
+            branches.append(
+                {
+                    "indices": branch_indices,
+                    "points": ridge_points[branch_indices],
+                }
+            )
+
+    # If there aren't any split points, begin with endpoints.
+    if not split_points and endpoints:
+        for start_idx in endpoints:
+
+            # Only start a branch if this endpoint still has an unexplored connection.
+            next_idx = None
+            for candidate_idx in neighbors[start_idx]:
+                edge = frozenset((start_idx, candidate_idx))
+                if edge in unexplored:
+                    next_idx = candidate_idx
+                    break
+
+            if next_idx is None:
+                continue
+
+            branch_indices = trace_branch(start_idx, next_idx)
+            branches.append(
+                {
+                    "indices": branch_indices,
+                    "points": ridge_points[branch_indices],
+                }
+            )
+
+    # Return an object with the points along each branch, including the split point and endpoint.
+    return branches
+        
+
+def _fit_mst_curves(branches):
+
+    splines = []
+
+    # Loop over branches
+    for branch in branches:
+        pts = branch["points"].detach().cpu().numpy()
+
+        if len(pts) < 2:
+            continue # Require at least 2 points to connect
+
+        # Remove duplicate / near-duplicate consecutive points
+        diffs = pts[1:] - pts[:-1]
+        seg_lengths = np.sqrt((diffs**2).sum(axis=1)) # Euclidean distance between consecutive points
+        keep = np.r_[True, seg_lengths > 1e-8]
+        pts = pts[keep]
+
+        if len(pts) < 2:
+            continue
+
+        # u is like arc length
+        diffs = pts[1:] - pts[:-1]
+        seg_lengths = np.sqrt((diffs**2).sum(axis=1))
+        u = np.r_[0.0, np.cumsum(seg_lengths)]
+
+        if u[-1] <= 1e-12:
+            continue
+
+        # Estimate one tangent vector per point from neighboring points
+        tangents = np.zeros_like(pts)
+
+        if len(pts) == 2: # If 2 points -> Straight line
+            tangents[0] = pts[1] - pts[0]
+            tangents[1] = pts[1] - pts[0]
+        else: # Use finite difference
+            tangents[0] = (pts[1] - pts[0]) / max(u[1] - u[0], 1e-12)
+            tangents[-1] = (pts[-1] - pts[-2]) / max(u[-1] - u[-2], 1e-12)
+
+            for i in range(1, len(pts) - 1):
+                du = max(u[i + 1] - u[i - 1], 1e-12)
+                tangents[i] = (pts[i + 1] - pts[i - 1]) / du # Scale by arc length
+
+        tangent_max = 1.5
+        tangent_norms = np.sqrt((tangents**2).sum(axis=1))
+        mask = tangent_norms > tangent_max
+        tangents[mask] *= (tangent_max / tangent_norms[mask])[:, None]
+
+
+        # Record Hermite segment data for each consecutive pair of points
+        segments = []
+        for i in range(len(pts) - 1):
+            h = u[i + 1] - u[i]
+            if h <= 1e-12:
+                continue
+
+            segments.append(
+                {
+                    "p0": pts[i],
+                    "p1": pts[i + 1],
+                    "m0": tangents[i],
+                    "m1": tangents[i + 1],
+                    "h": h,
+                }
+            )
+
+        if not segments:
+            continue
+
+        splines.append(
+            {
+                "indices": branch["indices"],
+                "points": pts,
+                "segments": segments,
+            }
+        )
+
+    return splines
+
+
+
+def plot_mst(
+    learner: "ActiveLearner"):
+
     n_temp = 200
     temp_grid = torch.linspace(0.0, 1.0, n_temp)
     n_theta = learner.data_generator.theta_range
@@ -114,10 +338,13 @@ def plot_mst(learner: "ActiveLearner"):
         ax[0, i].set_xlabel("Temperature")
         ax[0, i].set_ylabel("Theta")
 
+    ax[0,0].set_title("Ground truth phase diagram boundary")
+    ax[0,1].set_title("Sampled phase diagrams and training points")
+
     savepath.parent.mkdir(exist_ok=True, parents=True)
 
     # Plot phase diagram boundaries
-    gt_diagrams = learner.diagram_generator.diagrams(3, data_generator=learner.data_generator)
+    gt_diagrams = learner.diagram_generator.diagrams(1, data_generator=learner.data_generator)
     _plot_mst_diagrams(learner, gt_diagrams, ax[0, 0], color="red")  
 
     diagrams = learner.diagram_generator.diagrams(10)

@@ -15,41 +15,10 @@ from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
 )
 from bayes_phase.utils import eval_context
 
+from .plot_mst import _plot_mst_diagrams
 
 
-def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") -> torch.Tensor:
-    """MST in normalized space, forbidding edges within same discrete theta level."""
-    x = x_norm.detach().to(dtype=torch.float64, device="cpu")
-    n = x.shape[0]
-    if n < 2:
-        return torch.empty((0, 2), dtype=torch.long)
-
-    # All pairs of indices. offset = 1 means, don't include self-pairs.
-    i, j = torch.triu_indices(n, n, offset=1)
-
-    # Assume normalized k/n_theta -> map back to integer k
-    theta_idx = (x[:, 1] * n_theta).round().to(torch.int64)
-
-    # No connections within a theta-value
-    keep = theta_idx[i] != theta_idx[j] 
-    i, j = i[keep], j[keep]
-
-    # Limit connections across an excessive range of values
-    dist = (x[i] - x[j]).norm(dim=1)
-    keep2 = dist <= learner.config.max_tree_conn_dist
-    i, j = i[keep2], j[keep2]
-
-    # Weight by full Euclidean distance in (T_norm, theta_norm):
-    w = (x[i] - x[j]).norm(dim=1).tolist()
-
-    # Generate MST
-    G = nx.Graph()
-    G.add_nodes_from(range(n))
-    G.add_weighted_edges_from((int(a), int(b), float(c)) for a, b, c in zip(i, j, w))
-    mst = nx.minimum_spanning_tree(G) 
-    return torch.tensor(list(mst.edges()), dtype=torch.long)
-
-def plot_mst_diagrams(
+def _plot_mst_diagrams_with_grid(
     learner: "ActiveLearner",
     diagrams: Iterator[DiagramOutput],
     ax: Axes,
@@ -68,38 +37,14 @@ def plot_mst_diagrams(
 
     ax.set_aspect("auto")
 
-    n_theta = learner.data_generator.theta_range
-    cmap = plt.get_cmap("tab20")
-
-    for idx, (ridge_x, _, _, _, _sample) in enumerate(diagrams):
-        if ridge_x.numel() == 0:
-            continue
-
-        edges = _create_mst(ridge_x, n_theta=n_theta, learner=learner)
-        xys = learner.data_generator.untransform_inputs(ridge_x.detach()).cpu()
-
-        if color is None:
-            line_color = cmap(idx % cmap.N)
-            line_alpha = 0.85
-            line_width = 1.0
-            point_size = 10
-        else:
-            line_color = color
-            line_alpha = 1.0
-            line_width = 1.2
-            point_size = 11
-
-        ax.scatter(xys[:, 0], xys[:, 1], s=point_size, color=line_color, zorder=4)
-
-        for a, b in edges.tolist():
-            ax.plot(
-                xys[[a, b], 0],
-                xys[[a, b], 1],
-                color=line_color,
-                lw=line_width,
-                alpha=line_alpha,
-                zorder=4,
-            )
+    # Reuse the MST callback plotting logic so scorer obeys
+    # learner.config.tree_graph_type ("MST" or "CubicSpline")
+    _plot_mst_diagrams(
+        learner=learner,
+        diagrams=diagrams,
+        ax=ax,
+        color=color,
+    )
 
 
 def _generate_grid(
@@ -243,12 +188,15 @@ def _calc_score(
     fp_sum = 0
     fn_sum = 0
 
-    for ridge_x, _, _, _, _sample in diagrams:
+    for out in diagrams:
+        ridge_x = out.peaks
+
         hit_gdf = _intersect_ridge_points_grid(
             learner=learner,
             grid=grid,
             ridge_x=ridge_x,
         )
+
         pred_idx = set(hit_gdf.index.tolist())
 
         tp = len(pred_idx & true_idx)
@@ -332,9 +280,8 @@ def score_model_plot(learner: "ActiveLearner"):
         1, data_generator=learner.data_generator
     )
     gt_item = gt_diagrams[0]
-    if gt_item is None:
-        raise RuntimeError("Ground-truth diagram generator returned no diagrams.")
-    gt_ridge_x, _, _, _, gt_sample = gt_item
+    gt_ridge_x = gt_item.peaks
+    gt_sample = gt_item.sample
 
     true_hits = _intersect_ridge_points_grid(
         learner=learner,
@@ -428,16 +375,16 @@ def score_model_plot(learner: "ActiveLearner"):
         ax[0, i].set_ylabel("Theta")
 
     # Plot MSTs + scoring boxes
-    plot_mst_diagrams(
+    _plot_mst_diagrams_with_grid(
         learner=learner,
-        diagrams=iter([(gt_ridge_x, _, _, _, gt_sample)]),
+        diagrams=iter([gt_item]),
         ax=ax[0, 0],
         color="red",
         grid=scoring_grid,
         true_hits=true_hits,
     )
 
-    plot_mst_diagrams(
+    _plot_mst_diagrams_with_grid(
         learner=learner,
         diagrams=iter(posterior_diagrams),
         ax=ax[0, 1],
