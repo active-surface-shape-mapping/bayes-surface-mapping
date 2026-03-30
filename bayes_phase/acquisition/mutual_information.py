@@ -14,10 +14,6 @@ if TYPE_CHECKING:
 from bayes_phase.utils import eval_context
 from .conditioning import EPConditioner, ESSConditioner, BaseConditioner
 
-# FIXME: Noise approach between MI and EIG in this draft may be inconsistent.
-#        Confirm whether acquisition should condition on noisy or latent values.
-#        Ensure no hidden GPyTorch prediction cache interactions.
-
 
 class MutualInformation:
     """
