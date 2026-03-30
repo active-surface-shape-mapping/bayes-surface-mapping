@@ -76,7 +76,7 @@ def _plot_mst_diagrams(
             for a, b in edges.tolist():
                 ax.plot(xys[[a, b], 0], xys[[a, b], 1], color=c, lw=1)
         
-        elif learner.config.tree_graph_type == "CubicSpline":
+        elif learner.config.tree_graph_type == "MSTCurve":
             branches = _identify_branches(ridge_points=xys, edges=edges)
             splines = _fit_mst_curves(branches)
 
@@ -108,7 +108,7 @@ def _plot_mst_diagrams(
                     )
 
         else:
-            raise ValueError("Valid tree plot types are MST and CubicSpline.")
+            raise ValueError("Valid tree plot types are MST and MSTCurve.")
 
 
 def _identify_branches(

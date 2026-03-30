@@ -1,5 +1,6 @@
 import torch
 import networkx as nx
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.ticker import MaxNLocator
@@ -38,7 +39,7 @@ def _plot_mst_diagrams_with_grid(
     ax.set_aspect("auto")
 
     # Reuse the MST callback plotting logic so scorer obeys
-    # learner.config.tree_graph_type ("MST" or "CubicSpline")
+    # learner.config.tree_graph_type ("MST" or "MSTCurve")
     _plot_mst_diagrams(
         learner=learner,
         diagrams=diagrams,
@@ -251,6 +252,56 @@ def _calc_score(
     return metrics
 
 
+def _compute_grid_probs(
+    learner: "ActiveLearner",
+    grid: gpd.GeoDataFrame,
+    diagrams: list[DiagramOutput],
+    alpha: float = 1.0,
+) -> gpd.GeoDataFrame:
+    """
+    Compute Laplace-smoothed probability that each grid cell contains
+    at least one ridge point across sampled diagrams.
+
+    Returns a copy of `grid` with added columns:
+        - hit_count: number of diagrams that hit the cell
+        - hit_prob:  Laplace-smoothed occupancy probability
+    """
+    n_samples = len(diagrams)
+    if n_samples == 0:
+        raise RuntimeError("No diagrams provided for probability computation.")
+
+    # Initialize counts for each grid cell
+    hit_counts = np.zeros(len(grid), dtype=np.int64)
+
+    for out in diagrams:
+        ridge_x = out.peaks
+
+        hit_gdf = _intersect_ridge_points_grid(
+            learner=learner,
+            grid=grid,
+            ridge_x=ridge_x,
+        )
+
+        # Ensure each diagram contributes at most one hit per cell
+        pred_idx = set(hit_gdf.index.tolist())
+
+        for idx in pred_idx:
+            hit_counts[idx] += 1
+
+    # Laplace-smoothed empirical hit probability per cell
+    # p = (c + alpha) / (N + 2*alpha)
+    hit_prob = (hit_counts + alpha) / (n_samples + 2 * alpha)
+
+    # Return augmented grid
+    grid_out = grid.copy()
+    grid_out["hit_count"] = hit_counts
+    grid_out["hit_prob"] = hit_prob
+
+    return grid_out
+
+
+
+
 def score_model_plot(learner: "ActiveLearner"):
     """Overall function to calculate and save scores, along with plots illustrating the scoring process."""
     # Build dense evaluation grid for the background heatmaps
@@ -302,8 +353,15 @@ def score_model_plot(learner: "ActiveLearner"):
         diagrams=posterior_diagrams,
     )
 
+    grid_probs = _compute_grid_probs(
+        learner=learner,
+        grid=scoring_grid,
+        diagrams=posterior_diagrams,
+        alpha=1.0,
+    )
+
     # Plot setup
-    fig, ax = plt.subplots(1, 2, squeeze=False, figsize=(12, 6))
+    fig, ax = plt.subplots(1, 3, squeeze=False, figsize=(18, 6), constrained_layout=True)
 
     # Reshape to (n_theta + 1, n_temp) for plotting
     z_gt = y_gt_mean.reshape((n_temp, n_theta + 1)).T.detach().cpu().numpy()
@@ -363,6 +421,19 @@ def score_model_plot(learner: "ActiveLearner"):
     )
     ax[0, 1].set_aspect("auto")
 
+    grid_probs.plot(
+        column="hit_prob",
+        ax=ax[0, 2],
+        cmap="Blues",
+        linewidth=0,
+        legend=False,
+        vmin=0.0,
+        vmax=1.0,
+        zorder=1,
+    )
+    ax[0, 2].set_title("Ridge point probability")
+    ax[0, 2].set_aspect("auto")
+
     # Training data and newest selected point on right panel
     xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
     ax[0, 1].scatter(xs[:, 0], xs[:, 1], color="black", marker=".", zorder=6)
@@ -370,7 +441,7 @@ def score_model_plot(learner: "ActiveLearner"):
     new_xs = learner.data_generator.untransform_inputs(learner.next_x.detach())
     ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100, zorder=7)
 
-    for i in range(2):
+    for i in range(3):
         ax[0, i].set_xlabel("Temperature")
         ax[0, i].set_ylabel("Theta")
 
@@ -393,7 +464,20 @@ def score_model_plot(learner: "ActiveLearner"):
         true_hits=true_hits,
     )
 
-    for i in range(2):
+    _plot_mst_diagrams_with_grid(
+        learner=learner,
+        diagrams=iter([gt_item]),
+        ax=ax[0, 2],
+        color="red",
+        grid=scoring_grid,
+        true_hits=None,
+    )
+
+    # Force GT lines to top (right panel only)
+    for line in ax[0, 2].lines:
+        line.set_zorder(10)
+
+    for i in range(3):
         ax[0, i].set_xlim(
             learner.data_generator.min_temp,
             learner.data_generator.max_temp,
@@ -402,6 +486,14 @@ def score_model_plot(learner: "ActiveLearner"):
             learner.data_generator.min_theta-0.5,
             learner.data_generator.max_theta+0.5,
         )
+
+
+    norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap="Blues")
+    sm.set_array([])
+
+    cbar = fig.colorbar(sm, ax=ax[0, :], fraction=0.025, pad=0.02)
+    cbar.set_label("Ridge point probability")
 
     # Save figure
     savepath = (
@@ -412,6 +504,5 @@ def score_model_plot(learner: "ActiveLearner"):
     )
     savepath.parent.mkdir(exist_ok=True, parents=True)
 
-    plt.tight_layout()
     plt.savefig(savepath, dpi=100)
     plt.close()

@@ -58,7 +58,7 @@ class DiagramGenerator(StrEnum):
 
 class TreeGraphType(StrEnum):
     MST = "MST"
-    SPLINE = "CubicSpline"
+    CURVE = "MSTCurve"
 
 
 class MIConditioningStrategy(StrEnum):
@@ -77,8 +77,8 @@ class ActiveLearnerConfig:
     n_scoring_samples: int = 200 # number of samples to use for scoring at each iteration
     scoring_grid_T_range: int = 50 # size of scoring box along the T axis, in K
     max_tree_conn_dist: float = 0.225 # max proportion of the space across which a spanning tree phase diagram connection will be made for plotting
-    tree_graph_type: TreeGraphType = TreeGraphType.SPLINE # Type of visuals for tree graphs produced by plot_mst
-    show_points_tree_graphs = False # Show scatter of ridge points or not in plots produced by plot_mst
+    tree_graph_type: TreeGraphType = TreeGraphType.CURVE # Type of visuals for tree graphs produced by plot_mst
+    show_points_tree_graphs = True # Show scatter of ridge points or not in plots produced by plot_mst
     dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
