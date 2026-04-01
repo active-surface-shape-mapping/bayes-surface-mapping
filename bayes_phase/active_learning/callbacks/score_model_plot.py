@@ -1,5 +1,6 @@
 import torch
 import networkx as nx
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.ticker import MaxNLocator
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 import numpy as np
 import pandas as pd
+
 import shapely as shp
 import geopandas as gpd
 
@@ -15,41 +17,10 @@ from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
 )
 from bayes_phase.utils import eval_context
 
+from .plot_mst import _plot_mst_diagrams
 
 
-def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") -> torch.Tensor:
-    """MST in normalized space, forbidding edges within same discrete theta level."""
-    x = x_norm.detach().to(dtype=torch.float64, device="cpu")
-    n = x.shape[0]
-    if n < 2:
-        return torch.empty((0, 2), dtype=torch.long)
-
-    # All pairs of indices. offset = 1 means, don't include self-pairs.
-    i, j = torch.triu_indices(n, n, offset=1)
-
-    # Assume normalized k/n_theta -> map back to integer k
-    theta_idx = (x[:, 1] * n_theta).round().to(torch.int64)
-
-    # No connections within a theta-value
-    keep = theta_idx[i] != theta_idx[j] 
-    i, j = i[keep], j[keep]
-
-    # Limit connections across an excessive range of temperatures, for visual clarity
-    dT = (x[i, 0] - x[j, 0]).abs()
-    keep2 = dT <= learner.config.max_T_span
-    i, j = i[keep2], j[keep2]
-
-    # Weight by full Euclidean distance in (T_norm, theta_norm):
-    w = (x[i] - x[j]).norm(dim=1).tolist()
-
-    # Generate MST
-    G = nx.Graph()
-    G.add_nodes_from(range(n))
-    G.add_weighted_edges_from((int(a), int(b), float(c)) for a, b, c in zip(i, j, w))
-    mst = nx.minimum_spanning_tree(G) 
-    return torch.tensor(list(mst.edges()), dtype=torch.long)
-
-def plot_mst_diagrams(
+def _plot_mst_diagrams_with_grid(
     learner: "ActiveLearner",
     diagrams: Iterator[DiagramOutput],
     ax: Axes,
@@ -68,38 +39,14 @@ def plot_mst_diagrams(
 
     ax.set_aspect("auto")
 
-    n_theta = learner.data_generator.theta_range
-    cmap = plt.get_cmap("tab20")
-
-    for idx, (ridge_x, _, _, _, _sample) in enumerate(diagrams):
-        if ridge_x.numel() == 0:
-            continue
-
-        edges = _create_mst(ridge_x, n_theta=n_theta, learner=learner)
-        xys = learner.data_generator.untransform_inputs(ridge_x.detach()).cpu()
-
-        if color is None:
-            line_color = cmap(idx % cmap.N)
-            line_alpha = 0.85
-            line_width = 1.0
-            point_size = 10
-        else:
-            line_color = color
-            line_alpha = 1.0
-            line_width = 1.2
-            point_size = 11
-
-        ax.scatter(xys[:, 0], xys[:, 1], s=point_size, color=line_color, zorder=4)
-
-        for a, b in edges.tolist():
-            ax.plot(
-                xys[[a, b], 0],
-                xys[[a, b], 1],
-                color=line_color,
-                lw=line_width,
-                alpha=line_alpha,
-                zorder=4,
-            )
+    # Reuse the MST callback plotting logic so scorer obeys
+    # learner.config.tree_graph_type ("MST" or "MSTCurve")
+    _plot_mst_diagrams(
+        learner=learner,
+        diagrams=diagrams,
+        ax=ax,
+        color=color,
+    )
 
 
 def _generate_grid(
@@ -179,20 +126,31 @@ def _intersect_ridge_points_grid(
     return hits
 
 
-def _plot_metrics_over_iterations(
+def _plot_metrics_by_iteration(
     learner: "ActiveLearner",
-    csv_path: Path) -> None:
-    """Plot precision, recall, and F1 scores by iteration."""
+    csv_path: Path,
+) -> None:
+    """Plot score metrics by iteration."""
     df = pd.read_csv(csv_path)
     df = df.sort_values("iteration")
 
     colors = plt.get_cmap("Set1").colors
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(df["iteration"], df["recall"], linewidth = 1, marker="d", markersize = 3, label="Recall", color = colors[0])
-    ax.plot(df["iteration"], df["precision"], linewidth = 1, marker="d", markersize = 3, label="Precision", color = colors[1])
-    ax.plot(df["iteration"], df["f1"], linewidth = 1, marker="d", markersize = 3, label="F1 score", color = colors[2])
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
 
+    # Left panel: recall / precision / F1
+    ax[0].plot(
+        df["iteration"], df["recall"],
+        linewidth=1, label="Recall", color=colors[0]
+    )
+    ax[0].plot(
+        df["iteration"], df["precision"],
+        linewidth=1, label="Precision", color=colors[1]
+    )
+    ax[0].plot(
+        df["iteration"], df["f1"],
+        linewidth=1, label="F1 score", color=colors[2]
+    )
 
     if learner.config.acquisition_function == "random":
         literate_acquisition_function = "Random sampling"
@@ -205,15 +163,36 @@ def _plot_metrics_over_iterations(
     else:
         literate_acquisition_function = learner.config.acquisition_function
 
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Score")
-    ax.set_title(f"Performance over iterations: {literate_acquisition_function}")
-    ax.set_ylim(0.0, 1.0)
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax[0].xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax[0].set_xlabel("Iteration")
+    ax[0].set_ylabel("Score")
+    ax[0].set_title("Recall, precision, and F1 score")
+    ax[0].set_ylim(0.0, 1.0)
+    ax[0].grid(True, alpha=0.3)
+    ax[0].legend()
+
+    # Right panel: log likelihood
+    ax[1].plot(
+        df["iteration"],
+        df["log_likelihood"],
+        linewidth=1,
+        color="purple",
+        label="Log likelihood",
+    )
+    ax[1].xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax[1].set_xlabel("Iteration")
+    ax[1].set_ylabel("Log likelihood")
+    ax[1].set_title("Log likelihood")
+    ax[1].grid(True, alpha=0.3)
+    ax[1].legend()
+
+    fig.suptitle(
+        f"Performance by iteration: {literate_acquisition_function}",
+        fontsize=12,
+    )
 
     fig.tight_layout()
+    fig.subplots_adjust(top=0.88)
     fig.savefig(csv_path.parent / "score_metrics.png", dpi=150)
     plt.close(fig)
 
@@ -222,6 +201,8 @@ def _calc_score(
     grid: gpd.GeoDataFrame,
     true_idx: set[int],
     diagrams: list[DiagramOutput],
+    alpha: float = 1.0,
+    hit_counts: Optional[np.ndarray] = None,
 ) -> dict[str, float | int]:
     """Calculate and save scores by iteration."""
     n_scoring_samples = len(diagrams)
@@ -243,12 +224,19 @@ def _calc_score(
     fp_sum = 0
     fn_sum = 0
 
-    for ridge_x, _, _, _, _sample in diagrams:
+    # Per-cell hit counts across posterior diagrams
+    if hit_counts is None:
+        hit_counts = _compute_hit_counts(learner, grid, diagrams)
+
+    for out in diagrams:
+        ridge_x = out.peaks
+
         hit_gdf = _intersect_ridge_points_grid(
             learner=learner,
             grid=grid,
             ridge_x=ridge_x,
         )
+
         pred_idx = set(hit_gdf.index.tolist())
 
         tp = len(pred_idx & true_idx)
@@ -271,6 +259,21 @@ def _calc_score(
         fp_sum += fp
         fn_sum += fn
 
+
+    hit_prob = (hit_counts + alpha) / (n_scoring_samples + 2 * alpha)
+
+    true_mask = np.zeros(len(grid), dtype=np.float64)
+    true_mask[list(true_idx)] = 1.0
+
+    # Log likelihood of the truth, assuming independent Bernoulli.
+    log_likelihood = np.sum(
+        true_mask * np.log(hit_prob) +
+        (1.0 - true_mask) * np.log(1.0 - hit_prob)
+    )
+
+    # Log likelihood/# grid cells, which can be easier to compare across grid sizes
+    mean_log_likelihood = log_likelihood / len(grid)
+
     metrics = {
         "iteration": int(learner._i),
         "acquisition": str(learner.config.acquisition_function),
@@ -283,6 +286,8 @@ def _calc_score(
         "recall": recall_sum / n_scoring_samples,
         "precision": precision_sum / n_scoring_samples,
         "f1": f1_sum / n_scoring_samples,
+        "log_likelihood": float(log_likelihood),
+        "mean_log_likelihood": float(mean_log_likelihood),
     }
 
     metrics_savepath = (
@@ -299,9 +304,67 @@ def _calc_score(
     else:
         df.to_csv(metrics_savepath, mode="w", header=True, index=False)
 
-    _plot_metrics_over_iterations(learner, metrics_savepath)
+    _plot_metrics_by_iteration(learner, metrics_savepath)
     return metrics
 
+
+def _compute_grid_probs(
+    learner: "ActiveLearner",
+    grid: gpd.GeoDataFrame,
+    diagrams: list[DiagramOutput],
+    alpha: float = 1.0,
+    hit_counts: Optional[np.ndarray] = None,
+) -> gpd.GeoDataFrame:
+    """
+    Compute Laplace-smoothed probability that each grid cell contains
+    at least one ridge point across sampled diagrams.
+
+    Returns a copy of `grid` with added columns:
+        - hit_count: number of diagrams that hit the cell
+        - hit_prob:  Laplace-smoothed occupancy probability
+    """
+    n_samples = len(diagrams)
+    if n_samples == 0:
+        raise RuntimeError("No diagrams provided for probability computation.")
+
+    # Initialize counts for each grid cell
+    if hit_counts is None:
+        hit_counts = _compute_hit_counts(learner, grid, diagrams)
+
+    # Laplace-smoothed empirical hit probability per cell
+    # p = (c + alpha) / (N + 2*alpha)
+    hit_prob = (hit_counts + alpha) / (n_samples + 2 * alpha)
+
+    # Return augmented grid
+    grid_out = grid.copy()
+    grid_out["hit_count"] = hit_counts
+    grid_out["hit_prob"] = hit_prob
+
+    return grid_out
+
+
+def _compute_hit_counts(
+    learner: "ActiveLearner",
+    grid: gpd.GeoDataFrame,
+    diagrams: list[DiagramOutput],
+) -> np.ndarray:
+    """Count how many sampled diagrams hit each grid cell."""
+    hit_counts = np.zeros(len(grid), dtype=np.int64)
+
+    for out in diagrams:
+        ridge_x = out.peaks
+
+        hit_gdf = _intersect_ridge_points_grid(
+            learner=learner,
+            grid=grid,
+            ridge_x=ridge_x,
+        )
+
+        pred_idx = set(hit_gdf.index.tolist())
+        for idx in pred_idx:
+            hit_counts[idx] += 1
+
+    return hit_counts
 
 def score_model_plot(learner: "ActiveLearner"):
     """Overall function to calculate and save scores, along with plots illustrating the scoring process."""
@@ -324,17 +387,16 @@ def score_model_plot(learner: "ActiveLearner"):
         y_pred = learner.model(eval_grid)
     y_pred_mean = y_pred.mean * learner._y_std + learner._y_mean
 
-    # Build scoring grid in physical units
-    scoring_grid = _generate_grid(learner)
+    # Build scoring grid in physical units. Reset index
+    scoring_grid = _generate_grid(learner).reset_index(drop=True)
 
     # Get ground-truth diagram, determine true scoring boxes
     gt_diagrams = learner.diagram_generator.diagrams(
         1, data_generator=learner.data_generator
     )
     gt_item = gt_diagrams[0]
-    if gt_item is None:
-        raise RuntimeError("Ground-truth diagram generator returned no diagrams.")
-    gt_ridge_x, _, _, _, gt_sample = gt_item
+    gt_ridge_x = gt_item.peaks
+    gt_sample = gt_item.sample
 
     true_hits = _intersect_ridge_points_grid(
         learner=learner,
@@ -348,15 +410,34 @@ def score_model_plot(learner: "ActiveLearner"):
         learner.diagram_generator.diagrams(learner.config.n_scoring_samples)
     )
 
+    hit_counts = _compute_hit_counts(
+        learner=learner,
+        grid=scoring_grid,
+        diagrams=posterior_diagrams,
+    )
+
+
+    alpha = 1.0
+
     metrics = _calc_score(
         learner=learner,
         grid=scoring_grid,
         true_idx=true_idx,
         diagrams=posterior_diagrams,
+        alpha=alpha,
+        hit_counts=hit_counts,
+    )
+
+    grid_probs = _compute_grid_probs(
+        learner=learner,
+        grid=scoring_grid,
+        diagrams=posterior_diagrams,
+        alpha=alpha,
+        hit_counts=hit_counts,
     )
 
     # Plot setup
-    fig, ax = plt.subplots(1, 2, squeeze=False, figsize=(12, 6))
+    fig, ax = plt.subplots(1, 3, squeeze=False, figsize=(18, 6), constrained_layout=True)
 
     # Reshape to (n_theta + 1, n_temp) for plotting
     z_gt = y_gt_mean.reshape((n_temp, n_theta + 1)).T.detach().cpu().numpy()
@@ -416,6 +497,22 @@ def score_model_plot(learner: "ActiveLearner"):
     )
     ax[0, 1].set_aspect("auto")
 
+    grid_probs.plot(
+        column="hit_prob",
+        ax=ax[0, 2],
+        cmap="berlin",
+        linewidth=0,
+        legend=False,
+        vmin=0.0,
+        vmax=1.0,
+        zorder=1,
+    )
+    ax[0, 2].set_title(
+        f"Ridge point probability\n"
+        f"Log likelihood={metrics['log_likelihood']:.3f}"
+    )
+    ax[0, 2].set_aspect("auto")
+
     # Training data and newest selected point on right panel
     xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
     ax[0, 1].scatter(xs[:, 0], xs[:, 1], color="black", marker=".", zorder=6)
@@ -423,21 +520,21 @@ def score_model_plot(learner: "ActiveLearner"):
     new_xs = learner.data_generator.untransform_inputs(learner.next_x.detach())
     ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100, zorder=7)
 
-    for i in range(2):
+    for i in range(3):
         ax[0, i].set_xlabel("Temperature")
         ax[0, i].set_ylabel("Theta")
 
     # Plot MSTs + scoring boxes
-    plot_mst_diagrams(
+    _plot_mst_diagrams_with_grid(
         learner=learner,
-        diagrams=iter([(gt_ridge_x, _, _, _, gt_sample)]),
+        diagrams=iter([gt_item]),
         ax=ax[0, 0],
         color="red",
         grid=scoring_grid,
         true_hits=true_hits,
     )
 
-    plot_mst_diagrams(
+    _plot_mst_diagrams_with_grid(
         learner=learner,
         diagrams=iter(posterior_diagrams),
         ax=ax[0, 1],
@@ -446,7 +543,20 @@ def score_model_plot(learner: "ActiveLearner"):
         true_hits=true_hits,
     )
 
-    for i in range(2):
+    _plot_mst_diagrams_with_grid(
+        learner=learner,
+        diagrams=iter([gt_item]),
+        ax=ax[0, 2],
+        color="red",
+        grid=scoring_grid,
+        true_hits=None,
+    )
+
+    # Force GT lines to top (right panel only)
+    for line in ax[0, 2].lines:
+        line.set_zorder(10)
+
+    for i in range(3):
         ax[0, i].set_xlim(
             learner.data_generator.min_temp,
             learner.data_generator.max_temp,
@@ -455,6 +565,14 @@ def score_model_plot(learner: "ActiveLearner"):
             learner.data_generator.min_theta-0.5,
             learner.data_generator.max_theta+0.5,
         )
+
+
+    norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap="berlin")
+    sm.set_array([])
+
+    cbar = fig.colorbar(sm, ax=ax[0, :], fraction=0.025, pad=0.02)
+    cbar.set_label("Ridge point probability")
 
     # Save figure
     savepath = (
@@ -465,6 +583,5 @@ def score_model_plot(learner: "ActiveLearner"):
     )
     savepath.parent.mkdir(exist_ok=True, parents=True)
 
-    plt.tight_layout()
     plt.savefig(savepath, dpi=100)
     plt.close()
