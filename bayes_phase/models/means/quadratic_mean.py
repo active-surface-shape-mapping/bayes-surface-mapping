@@ -5,6 +5,7 @@ from jaxtyping import Float
 
 class QuadraticMean(gpytorch.means.Mean):
     def __init__(self, input_size: int = 2, random_init: bool = False):
+        """A quadratic mean function."""
         super(QuadraticMean, self).__init__()
         if input_size != 2:
             raise NotImplementedError(
@@ -29,14 +30,29 @@ class QuadraticMean(gpytorch.means.Mean):
         if x.ndim == 3:
             # Batch mode
             b, n, _ = x.shape
-            xyz = torch.cat((x, torch.ones((b, n, 1))), -1)
+            xyz = torch.cat((x, torch.ones((b, n, 1))), -1)  # Add bias column
         else:
             n = x.shape[0]
-            xyz = torch.hstack((x, torch.ones((n, 1))))
+            xyz = torch.hstack((x, torch.ones((n, 1))))  # Add bias column
         result = ((xyz.matmul(self.weights)) * xyz).sum(dim=-1)
         return result
 
     def derivatives(self, x: Float[torch.Tensor, "n d"]) -> Float[torch.Tensor, "2 n"]:
+        """Return the first and second derivatives of the mean w.r.t. temperature.
+
+        Parameters
+        ----------
+        x
+            The points at which to evaluate the derivatives.
+        
+        Returns
+        -------
+        derivatives
+            A `2 x n` tensor, where `derivatives[0]` are the first derivatives
+            w.r.t. temperature and `derivatives[1]` are the second derivatives
+            w.r.t. temperature.
+        """
+        # TODO: Test properly
         n = x.shape[0]
         hessian = self.weights + self.weights.T
         a = self.weights[0, 0]
