@@ -65,8 +65,8 @@ class FindPeaksAndValleysDiagramGenerator(BaseDiagramGenerator):
         self,
         data_generator: Optional[BaseDataGenerator] = None,
         use_log_transform: bool = True,
-        debug_plot: bool = True,
-        plot_every: Optional[int] = 10,
+        debug_plot: bool = False,
+        plot_every: Optional[int] = 50,
         **kwargs,
     ) -> DiagramOutput:
         """Generate a single sample of the phase diagram boundary.
@@ -133,6 +133,10 @@ class FindPeaksAndValleysDiagramGenerator(BaseDiagramGenerator):
             plt.savefig(savepath, dpi=100)
             plt.close()
         self._count += 1
+        if self.learner.config.only_use_peaks:
+            valleys = None
+            increasing = None
+            decreasing = None
         return DiagramOutput(
             peaks=peaks,
             valleys=valleys,

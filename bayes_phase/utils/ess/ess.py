@@ -66,11 +66,11 @@ class ElipticalSliceSampler:
                 f0 = self.prior_distribution.sample()
         results = torch.full((n_samples, self.dimension), torch.nan)
         f = f0
-        for j in tqdm(range(n_burnin), desc="ESS Burnin", position=self.tqdm_position):
+        for j in tqdm(range(n_burnin), desc="ESS Burnin", position=self.tqdm_position, disable=True):
             f = self.step(f)
         idx = 0
         for i in tqdm(
-            range(n_samples * thin), desc="ESS Sampling", position=self.tqdm_position
+                range(n_samples * thin), desc="ESS Sampling", position=self.tqdm_position, disable=True
         ):
             f = self.step(f)
             if i % thin == 0:
