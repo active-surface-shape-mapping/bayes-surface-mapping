@@ -211,11 +211,6 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         covariance: Posterior covariance of the joint vector: [f(x_test), f'(x_inc), f'(x_dec), f''(x_ridge)].
 
         """
-        if not (
-            isinstance(self.mean_module, gpytorch.means.ZeroMean)
-            or isinstance(self.mean_module, gpytorch.means.ConstantMean)
-        ):
-            raise ValueError("Conditioning not yet implemented for non-constant mean.")
         o = self.covar_module.outputscale
 
         # Input handling
@@ -253,24 +248,39 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
         device = x_test.device
         dtype = x_test.dtype
 
-        # Constant mean -> priors are zeros for all derivatives
-        ridge_1stderiv_zeros = torch.zeros(n_ridge, 1, device=device, dtype=dtype)
-        inc_1stderiv_prior = torch.zeros_like(x_inc[:, :1])
-        dec_1stderiv_prior = torch.zeros_like(x_dec[:, :1])
-        ridge_2ndderiv_prior = torch.zeros_like(x_ridge[:, :1])
+        # Mean priors
+        train_mean = self.mean_module(self._x_train).unsqueeze(-1)
+        test_mean = self.mean_module(x_test).unsqueeze(-1)
 
-        prior_mean = torch.vstack(
-            (self.mean_module(self._x_train).unsqueeze(-1), ridge_1stderiv_zeros)
-        )
+        if hasattr(self.mean_module, "derivatives"):
+            ridge_mean_derivs = self.mean_module.derivatives(x_ridge)
+            inc_mean_derivs = self.mean_module.derivatives(x_inc) if n_inc > 0 else torch.empty(2, 0, device=device, dtype=dtype)
+            dec_mean_derivs = self.mean_module.derivatives(x_dec) if n_dec > 0 else torch.empty(2, 0, device=device, dtype=dtype)
+            ridge_1stderiv_prior = ridge_mean_derivs[0].unsqueeze(-1)
+            inc_1stderiv_prior = inc_mean_derivs[0].unsqueeze(-1)
+            dec_1stderiv_prior = dec_mean_derivs[0].unsqueeze(-1)
+            ridge_2ndderiv_prior = ridge_mean_derivs[1].unsqueeze(-1)
+        elif (isinstance(self.mean_module, gpytorch.means.ZeroMean) or isinstance(self.mean_module, gpytorch.means.ConstantMean)):
+            ridge_1stderiv_prior = torch.zeros(n_ridge, 1, device=device, dtype=dtype)
+            inc_1stderiv_prior = torch.zeros(n_inc, 1, device=device, dtype=dtype)
+            dec_1stderiv_prior = torch.zeros(n_dec, 1, device=device, dtype=dtype)
+            ridge_2ndderiv_prior = torch.zeros(n_ridge, 1, device=device, dtype=dtype)
+        else:
+            raise ValueError("Conditioning requires a derivatives attribute or constant mean.")
+
+        prior_mean = torch.vstack((train_mean, ridge_1stderiv_prior))
 
         prior_pred_mean = torch.vstack(
             (
-                self.mean_module(x_test).unsqueeze(-1),
+                test_mean,
                 inc_1stderiv_prior,
                 dec_1stderiv_prior,
                 ridge_2ndderiv_prior,
             )
         )
+
+        # T-derivative at ridges will be enforced to be zero
+        ridge_1stderiv_zeros = torch.zeros(n_ridge, 1, device=device, dtype=dtype)
 
         # Training data.
         x_train = self._x_train  # n_train, d
@@ -459,11 +469,6 @@ class TwiceDifferentiableModel(gpytorch.models.ExactGP):
 
         """
         # Input handling
-        if not (
-            isinstance(self.mean_module, gpytorch.means.ZeroMean)
-            or isinstance(self.mean_module, gpytorch.means.ConstantMean)
-        ):
-            raise ValueError("Conditioning not yet implemented for non-constant mean.")
         if x_ridge is None:
             if maximum_locs is None:
                 raise ValueError("Provide either x_ridge or maximum_locs.")
