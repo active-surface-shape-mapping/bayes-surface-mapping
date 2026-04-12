@@ -500,7 +500,7 @@ def score_model_plot(learner: "ActiveLearner"):
     grid_probs.plot(
         column="hit_prob",
         ax=ax[0, 2],
-        cmap="berlin",
+        cmap="cividis",
         linewidth=0,
         legend=False,
         vmin=0.0,
@@ -568,7 +568,7 @@ def score_model_plot(learner: "ActiveLearner"):
 
 
     norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
-    sm = mpl.cm.ScalarMappable(norm=norm, cmap="berlin")
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap="cividis")
     sm.set_array([])
 
     cbar = fig.colorbar(sm, ax=ax[0, :], fraction=0.025, pad=0.02)
