@@ -1,23 +1,22 @@
+import math
 import torch
 from jaxtyping import Float
-from .acquisition_utilities import posterior_latent, entropy_over_representer_set
 from typing import TYPE_CHECKING
+
+from bayes_phase.utils import eval_context
 
 if TYPE_CHECKING:
     from bayes_phase.active_learning import ActiveLearner
 
-# FIXME: Noise approach between MI and EIG in this draft may be inconsistent.
-#        Confirm whether acquisition should condition on noisy or latent values.
-#        Ensure no hidden GPyTorch prediction cache interactions.
-
 
 class EIG:
     """
-    Class to to compute expected information gain (EIG) acquisition across a candidate set.
+    Local expected information gain for a noisy observation y at candidate x.
 
-    Novick, et al. (2024): https://doi.org/10.1039/D4MH00432A
-    EIG(x,D) = H[F_D] - E_y[H[F_{D U (x,y)}]], where H is the differential entropy.
+        EIG = (1/2)ln(k_D(x,x)+sigma^2) - (1/2)ln(sigma^2)
 
+    Since sigma^2 is constant across candidates, this is monotone in the
+    posterior variance Var[f | D].
     """
 
     def __init__(
@@ -26,38 +25,24 @@ class EIG:
     ):
         self.learner = learner
 
-    def forward(self, X: Float[torch.Tensor, "m d"], ) -> Float[torch.Tensor, " m"]:
+    def forward(
+        self,
+        X: Float[torch.Tensor, "m d"],
+    ) -> Float[torch.Tensor, "m"]:
         model = self.learner.model
-        X = self.learner.cand_x
 
-        model.eval()
-        model.likelihood.eval()
+        with eval_context(model):
+            # Posterior at candidate points
+            posterior = model(X[:, torch.newaxis, :])
 
-        with torch.no_grad():
-            _ = model(X)  # creates prediction_strategy caches
+        # Predictive variance k_D(x, x)
+        var_f = posterior.variance.ravel().clamp_min(1e-30)
 
-        # Base entropy
-        H0 = entropy_over_representer_set(model, X)
-        scores = torch.empty(X.shape[0], dtype=X.dtype, device=X.device)
+        # Observation noise sigma^2 from GaussianLikelihood
+        noise_var = model.likelihood.noise.to(dtype=var_f.dtype, device=var_f.device)
+        noise_var = noise_var.clamp_min(1e-30)
 
-        with torch.no_grad():
-            mean_x, _ = posterior_latent(model, X)
-
-        for j in range(X.shape[0]):
-            x_new = X[j : j + 1]  # (1,d)
-            y_new = mean_x[j : j + 1].view(
-                1, 1
-            )  # (1,1); entropy/EIG does not depend on y
-
-            # Fantasy model = posterior conditioned on adding (x_new, y_new)
-            fantasy = model.get_fantasy_model(x_new, y_new.view(-1))
-
-            # Entropy after conditioning
-            Hj = entropy_over_representer_set(fantasy, X)
-
-            # EIG = entropy before conditioning - entropy after conditioning
-            scores[j] = H0 - Hj
-
+        scores = 0.5 * torch.log(var_f + noise_var) - 0.5 * torch.log(noise_var)
         return scores
 
     def __call__(
