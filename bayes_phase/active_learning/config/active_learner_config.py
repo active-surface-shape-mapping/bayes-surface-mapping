@@ -19,6 +19,7 @@ class InitDataStrategy(StrEnum):
     SOBOL = "sobol"
     MARGINAL_SOBOL = "marginal_sobol"
     GRID = "grid"
+    SLICE_ENDS = "slice_ends"
 
 
 class CandDataStrategy(StrEnum):
@@ -43,6 +44,8 @@ class AcquisitionFunction(StrEnum):
     RANDOM = "random"
     EIG = "eig"
     MI = "mutual_information"
+    HULL = "hull_variance"
+    CELL = "peak_cell"
 
 
 class DiagramGenerator(StrEnum):
@@ -59,6 +62,7 @@ class TreeGraphType(StrEnum):
 class MIConditioningStrategy(StrEnum):
     EP = "EP"
     ESS = "ESS"
+    DO = "DO"
 
 
 @dataclass
@@ -69,11 +73,11 @@ class ActiveLearnerConfig:
     init_seed: int = 42
     iter_n_candidates: int = 300  # number of candidate points per iteration
     mi_n_mc_samples: Optional[int] = None  # number of MC samples for MI acquisition function
-    n_scoring_samples: int = 200 # number of samples to use for scoring at each iteration
+    n_scoring_samples: int = 50 # number of samples to use for scoring at each iteration
     scoring_grid_T_range: int = 50 # size of scoring box along the T axis, in K
-    max_tree_conn_dist: float = 0.225 # max proportion of the space across which a spanning tree phase diagram connection will be made for plotting
+    max_tree_conn_dist: float = 0.175 # max proportion of the space across which a spanning tree phase diagram connection will be made for plotting
     tree_graph_type: TreeGraphType = TreeGraphType.CURVE # Type of visuals for tree graphs produced by plot_mst
-    show_points_tree_graphs = True # Show scatter of ridge points or not in plots produced by plot_mst
+    show_points_tree_graphs: bool = True # Show scatter of ridge points or not in plots produced by plot_mst
     dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
@@ -92,3 +96,4 @@ class ActiveLearnerConfig:
     diagram_generator: DiagramGenerator = DiagramGenerator.FIND_PEAKS
     diagram_generator_kwargs: dict[str, Any] = field(default_factory=dict)
     only_use_peaks: bool = False
+    addon_data_noise_std: float = 0.02 # If noise is being added to observations: standard deviation of the noise.

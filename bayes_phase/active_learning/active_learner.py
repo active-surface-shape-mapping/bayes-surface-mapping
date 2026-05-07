@@ -17,6 +17,8 @@ from bayes_phase.active_learning import callbacks
 from bayes_phase.acquisition import diagram_generation
 from bayes_phase.acquisition import EIG
 from bayes_phase.acquisition import MutualInformation
+from bayes_phase.acquisition.hull_variance import HullVariance
+from bayes_phase.acquisition.peak_cell_entropy import PeakCellEntropy
 from bayes_phase.models import means
 
 
@@ -81,7 +83,7 @@ class ActiveLearner:
         -------
         data_generator
             The object for generating observations/data.
-        """
+        """    
         return SimulatedDataGenerator(self.config.dataset_paths)
 
     def _init_train_data(
@@ -142,6 +144,28 @@ class ActiveLearner:
             thetas = torch.arange(0, n_theta + 1) / n_theta
             X, Y = torch.meshgrid(temps, thetas, indexing="ij")
             init_x = torch.vstack([X.ravel(), Y.ravel()]).T
+            init_y_mean, init_y_sigma = self._observe(init_x)
+            return init_x, init_y_mean, init_y_sigma
+        elif self.config.init_data_strategy == "slice_ends":
+            # Two endpoint temperatures on every integer-theta slice.
+            # In original coordinates this corresponds to:
+            # (min_temp, theta), (max_temp, theta) for theta=min_theta,...,max_theta
+            min_temp_u = torch.tensor(0.0)
+            max_temp_u = torch.tensor(1.0)
+
+            n_theta = self.data_generator.theta_range
+            thetas_u = torch.arange(0, n_theta + 1, dtype=torch.float32) / n_theta
+
+            lower = torch.stack(
+                [min_temp_u.repeat(len(thetas_u)), thetas_u],
+                dim=1,
+            )
+            upper = torch.stack(
+                [max_temp_u.repeat(len(thetas_u)), thetas_u],
+                dim=1,
+            )
+
+            init_x = torch.vstack([lower, upper])
             init_y_mean, init_y_sigma = self._observe(init_x)
             return init_x, init_y_mean, init_y_sigma
         else:
@@ -295,6 +319,26 @@ class ActiveLearner:
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
+        # Hull variance
+        elif self.config.acquisition_function == "hull_variance":
+            hi = HullVariance(self)
+            scores = hi(self.cand_x)
+            self.last_scores = scores.detach().cpu()
+            best_idx = torch.argmax(scores)
+            next_x = self.cand_x[best_idx : best_idx + 1]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+        
+        # Peak-cell entropy
+        elif self.config.acquisition_function == "peak_cell":
+            pce = PeakCellEntropy(self)
+            scores = pce(self.cand_x)
+            self.last_scores = scores.detach().cpu()
+            best_idx = torch.argmax(scores)
+            next_x = self.cand_x[best_idx : best_idx + 1]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
         else:
             raise NotImplementedError(
                 f"Unrecognized acquisition function {self.config.acquisition_function}"
@@ -399,8 +443,21 @@ class ActiveLearner:
             optionally after a log-transform.
         """
         y = self.data_generator.measure_uniform(u)
+
         if self.config.use_log_transform:
             y = y.log()
+
+        if self.config.addon_data_noise_std > 0.0:
+            noise = torch.randn_like(y) * self.config.addon_data_noise_std
+            y = y + noise
+
+        if not torch.isfinite(y).all():
+            raise ValueError(
+                f"Observed non-finite y values. "
+                f"min={y.nan_to_num().min().item()}, "
+                f"max={y.nan_to_num().max().item()}"
+            )
+
         return y.mean(-1).reshape((-1, 1)), y.std(-1).reshape((-1, 1))
 
     def _init_diagram_generator(self) -> diagram_generation.BaseDiagramGenerator:
