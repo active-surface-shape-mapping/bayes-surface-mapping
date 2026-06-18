@@ -4,13 +4,14 @@ from typing import Optional, TYPE_CHECKING
 import gpytorch
 import numpy as np
 import torch
-from jaxtyping import Float
+import warnings
+from jaxtyping import Bool, Float
 from scipy.signal import find_peaks
 from tqdm import tqdm
-
+from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 from bayes_phase.utils import eval_context
 
-if TYPE_CHECKING:
+if TYPE_CHECKING: 
     from bayes_phase.active_learning import ActiveLearner
 
 
@@ -22,8 +23,7 @@ class PeakCellGridSpec:
     Each cell represents:
         one temperature bin x one theta slice
 
-    The random variable for each cell is Bernoulli:
-        Z_j = 1 if a sampled diagram has at least one peak in cell j.
+    The random variable for each cell is Bernoulli.
     """
 
     x_eval: Float[torch.Tensor, "n_total 2"]
@@ -32,6 +32,7 @@ class PeakCellGridSpec:
     theta_indices: list[int]
     idxs_by_theta: dict[int, slice]
     temp_edges_raw: np.ndarray
+    temp_raw: np.ndarray
     n_cells: int
     n_temp_bins: int
     n_theta: int
@@ -62,19 +63,12 @@ class PeakCellEntropy:
         )
         self.n_mc_samples = int(
             getattr(self.learner.config, "peak_cell_n_mc_samples", 100)
-        )
+        ) 
         self.n_temp_eval = int(
-            getattr(
-                self.learner.config,
-                "peak_cell_n_temp_eval",
-                self.learner.config.diagram_generator_kwargs.get("n_temp_grid", 100),
-            )
-        )
+            getattr(self.learner.config, "peak_cell_n_temp_eval", 100)
+        ) # density of grid for peak finding
         self.sample_jitter = float(
             getattr(self.learner.config, "peak_cell_sample_jitter", 1e-7)
-        )
-        self.alpha = float(
-            getattr(self.learner.config, "peak_cell_alpha", 1.0)
         )
 
         self.grid_spec = self._build_peak_cell_grid()
@@ -90,14 +84,20 @@ class PeakCellEntropy:
         self,
         X: Float[torch.Tensor, "m d"],
     ) -> Float[torch.Tensor, "m"]:
+        """
+        Implement acquisition function.
+        """
+
         device = self.learner.train_x.device
         dtype = self.learner.train_x.dtype
         X = X.to(device=device, dtype=dtype)
 
+        # Baseline entropy for acquisition. Conditioned entropy will be subtracted from this.
         baseline_entropy = self._estimate_peak_cell_entropy_from_model(
             self.learner.model
         )
 
+        # Initialize an empty tensor for acquisition scores
         scores = torch.empty(X.shape[0], dtype=dtype, device=device)
 
         # Loop over candidates
@@ -111,8 +111,8 @@ class PeakCellEntropy:
                 n_fantasies=self.n_fantasies,
             )
 
+            # Accumulate entropies
             post_entropies = []
-
             for y_fant in fantasy_y:
                 # Condition on fantasy
                 fantasy_model = self.learner.model.get_fantasy_model(
@@ -121,7 +121,7 @@ class PeakCellEntropy:
                 )
                 fantasy_model.eval()
 
-                # Conditional entropy average
+                # Conditional entropy sum
                 post_entropy = self._estimate_peak_cell_entropy_from_model(
                     fantasy_model
                 )
@@ -130,37 +130,37 @@ class PeakCellEntropy:
             # Average conditioned entropies
             expected_post_entropy = torch.stack(post_entropies).mean()
 
-            # Score is expected reduction in entropy
+            # EIG score is expected reduction in entropy
             scores[i] = baseline_entropy - expected_post_entropy
 
         return scores
-
+    
     def _build_peak_cell_grid(self) -> PeakCellGridSpec:
+        """
+        Create eval grid.
+        """
+
         device = self.learner.train_x.device
         dtype = self.learner.train_x.dtype
         dg = self.learner.data_generator
         cfg = self.learner.config
 
-        temp_eval = torch.linspace(
-            0.0,
-            1.0,
-            self.n_temp_eval,
-            device=device,
-            dtype=dtype,
-        )
+        # Normalized temperature grid from 0 to 1
+        temp_eval = torch.linspace(0.0, 1.0, self.n_temp_eval, device=device, dtype=dtype)
 
+        # All discrete theta indices
         theta_range = dg.theta_range
         theta_indices = list(range(dg.min_theta, dg.max_theta + 1))
 
+        # Normalize theta
         theta_values = torch.tensor(
-            [
-                (theta_idx - dg.min_theta) / theta_range
-                for theta_idx in theta_indices
-            ],
+            [(theta_idx - dg.min_theta) / theta_range for theta_idx in theta_indices],
             device=device,
             dtype=dtype,
         )
 
+        # Set up and fill blocks so we can process one slice at a time.
+        # Each x-block contains normalized temperature, coverage pairs for one fixed theta.
         x_blocks = []
         idxs_by_theta = {}
         start = 0
@@ -176,7 +176,17 @@ class PeakCellEntropy:
 
         x_eval = torch.vstack(x_blocks)
 
-        # Use same temperature-bin scale as scoring.
+        # Convert normalized temp grid back to raw temperatures for binning peak locations.
+        theta_dummy = torch.zeros_like(temp_eval)
+        x2 = torch.stack([temp_eval, theta_dummy], dim=-1)
+        temp_raw = (
+            dg.untransform_inputs(x2)[:, 0]
+            .detach()
+            .cpu()
+            .numpy()
+        )
+
+        # Use same temperature bins as scoring.
         dt = float(getattr(cfg, "scoring_grid_T_range", 50))
         temp_edges = [dg.min_temp]
         while temp_edges[-1] < dg.max_temp:
@@ -184,6 +194,7 @@ class PeakCellEntropy:
 
         temp_edges_raw = np.asarray(temp_edges, dtype=float)
 
+        # Count cells.
         n_temp_bins = len(temp_edges_raw) - 1
         n_theta = len(theta_indices)
         n_cells = n_temp_bins * n_theta
@@ -195,6 +206,7 @@ class PeakCellEntropy:
             theta_indices=theta_indices,
             idxs_by_theta=idxs_by_theta,
             temp_edges_raw=temp_edges_raw,
+            temp_raw=temp_raw,
             n_cells=n_cells,
             n_temp_bins=n_temp_bins,
             n_theta=n_theta,
@@ -207,11 +219,20 @@ class PeakCellEntropy:
         x_new: Float[torch.Tensor, "1 d"],
         n_fantasies: int,
     ) -> Float[torch.Tensor, "n_fantasies"]:
+        """
+        Generate fantasy target values at x_new from the model posterior.
+        """
+
         with eval_context(model):
             posterior = model(x_new)
-
-        mean = posterior.mean.reshape(-1)
-        var = posterior.variance.reshape(-1).clamp_min(1e-30)
+            if torch.any(posterior.variance < -1e-6):
+                warnings.warn(
+                    f"Negative posterior variance detected before clamping: "
+                    f"min={posterior.variance.min().item()}",
+                    RuntimeWarning,
+                )
+            mean = posterior.mean.reshape(-1)
+            var = posterior.variance.reshape(-1).clamp_min(1e-30)
 
         dist = torch.distributions.Normal(mean, var.sqrt())
         return dist.sample((n_fantasies,)).reshape(-1)
@@ -222,53 +243,91 @@ class PeakCellEntropy:
         model: gpytorch.models.ExactGP,
         n_samples: int,
     ) -> Float[torch.Tensor, "n_samples n_total"]:
+        """
+        Generate full sampled functions. This is used both before and after conditioning.
+        """
+
         x_eval = self.grid_spec.x_eval
         device = x_eval.device
         dtype = x_eval.dtype
 
+
         with eval_context(model):
             posterior = model(x_eval)
+            mean = posterior.mean.reshape(-1)
+            cov = posterior.covariance_matrix
+            cov = cov + self.sample_jitter * torch.eye(
+                cov.shape[0], device=device, dtype=dtype
+            )
 
-        mean = posterior.mean.reshape(-1)
-        cov = posterior.covariance_matrix
-        cov = cov + self.sample_jitter * torch.eye(
-            cov.shape[0], device=device, dtype=dtype
+        # Cholesky decomposition for sampling
+        try:
+            L = torch.linalg.cholesky(cov)
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"Cholesky failed while sampling peak-cell functions. "
+                f"Covariance shape={cov.shape}, jitter={self.sample_jitter}, "
+                f"min_diag={cov.diag().min().item()}"
+            ) from e
+
+        eps = torch.randn(
+            n_samples,
+            mean.numel(),
+            device=device,
+            dtype=dtype,
         )
+        f_samples = mean + eps @ L.T
 
-        mvn = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov)
-        return mvn.sample((n_samples,))
+        return f_samples
 
     def _estimate_peak_cell_entropy_from_model(
         self,
         model: gpytorch.models.ExactGP,
     ) -> torch.Tensor:
+        """
+        Given a model, calculate summed entropy across the space.
+        """
+
+        # Sample functions.
         f_samples = self._sample_functions_from_model(
             model=model,
             n_samples=self.n_mc_samples,
         )
 
+        # Which cells contain a peak? Any peak within a cell is classified as a hit.
         hit_counts = torch.zeros(
             self.grid_spec.n_cells,
             dtype=torch.float64,
             device=f_samples.device,
         )
-
+        # Accumulate hit_counts.
         for k in range(f_samples.shape[0]):
             occupancy = self._sample_to_peak_cell_occupancy(f_samples[k])
             hit_counts += occupancy.to(hit_counts.dtype)
 
-        # Bernoulli probability for each cell.
+        if hit_counts.sum() == 0:
+            warnings.warn(
+                "No peaks were found in any sampled function. "
+                "Peak-cell entropy will be near zero; check peak_threshold, "
+                "peak_height_rule, max_n_peaks, and n_temp_eval.",
+                RuntimeWarning,
+            )
+
+        # Bernoulli hit probability for each cell.
         p = hit_counts / self.n_mc_samples
         eps = torch.finfo(p.dtype).eps
         p = p.clamp(eps, 1.0 - eps)
 
         return self._bernoulli_entropy_sum(p)
-    
 
     def _bernoulli_entropy_sum(
         self,
         p: Float[torch.Tensor, "n_cells"],
     ) -> torch.Tensor:
+        """
+        Compute the sum of marginal Bernoulli entropies across cells.
+        This ignores dependence between cell occupancies.
+        """
         eps = torch.finfo(p.dtype).eps
         p = p.clamp(eps, 1.0 - eps)
 
@@ -278,7 +337,11 @@ class PeakCellEntropy:
     def _sample_to_peak_cell_occupancy(
         self,
         f_sample: Float[torch.Tensor, "n_total"],
-    ) -> Float[torch.Tensor, "n_cells"]:
+    ) -> Bool[torch.Tensor, "n_cells"]:
+        """
+        Given a sample, determine whether each cell is occupied (contains a peak)
+        """
+
         device = f_sample.device
         occupancy = torch.zeros(
             self.grid_spec.n_cells,
@@ -286,41 +349,43 @@ class PeakCellEntropy:
             device=device,
         )
 
+        # Accumulate occupancy one slice at a time
         for theta_pos, theta_idx in enumerate(self.grid_spec.theta_indices):
+            # Grab the sampled function values along temperature for the current theta.
             sl = self.grid_spec.idxs_by_theta[theta_idx]
-            x_slice = self.grid_spec.x_eval[sl, 0]
             y_slice = f_sample[sl]
 
+            # Find peaks.
             peak_idxs = self._find_peak_idxs(y_slice)
 
             if len(peak_idxs) == 0:
                 continue
 
-            # Convert normalized temperature positions to raw temperature.
-            theta_dummy = torch.zeros_like(x_slice)
-            x2 = torch.stack([x_slice, theta_dummy], dim=-1)
-            T_raw = (
-                self.learner.data_generator
-                .untransform_inputs(x2)[:, 0]
-                .detach()
-                .cpu()
-                .numpy()
-            )
+            # Turn peak indices into raw temperatures.
+            peak_T_raw = self.grid_spec.temp_raw[peak_idxs]
 
-            peak_T_raw = T_raw[peak_idxs]
-
-            # Peaks into temperature bins.
+            # Map peak raw temperatures into temperature-bin indices.
             temp_bin_idxs = np.searchsorted(
                 self.grid_spec.temp_edges_raw,
                 peak_T_raw,
                 side="right",
             ) - 1
 
+            # Verify peaks fall within a bin.
             valid = (
                 (temp_bin_idxs >= 0)
                 & (temp_bin_idxs < self.grid_spec.n_temp_bins)
             )
+            if not np.all(valid):
+                invalid_peaks = peak_T_raw[~valid]
+                warnings.warn(
+                    f"{len(invalid_peaks)} peak(s) fell outside temperature-bin range "
+                    f"[{self.grid_spec.temp_edges_raw[0]}, {self.grid_spec.temp_edges_raw[-1]}]. "
+                    f"Invalid peak temperatures: {invalid_peaks}",
+                    RuntimeWarning,
+                )
 
+            # Flatten 2D cell coordinates into 1D cell indices.
             for temp_bin_idx in temp_bin_idxs[valid]:
                 cell_idx = theta_pos * self.grid_spec.n_temp_bins + int(temp_bin_idx)
                 occupancy[cell_idx] = True
@@ -331,30 +396,15 @@ class PeakCellEntropy:
         self,
         y_slice: Float[torch.Tensor, "n"],
     ) -> np.ndarray:
+        """
+        Call peak finder.
+        """
+
         diagram_kwargs = getattr(self.learner.config, "diagram_generator_kwargs", {})
 
-        peak_threshold = diagram_kwargs.get("peak_threshold", None)
-        max_n_peaks = diagram_kwargs.get("max_n_peaks", 2)
-
-        row = y_slice.detach().cpu()
-
-        if peak_threshold is not None:
-            scale = (row.amax() - row.amin()).item()
-            prominence = peak_threshold * scale
-        else:
-            prominence = None
-
-        y_np = row.numpy()
-        y_shifted = y_np - np.min(y_np)
-
-        peak_idxs, peak_info = find_peaks(
-            y_shifted,
-            prominence=prominence,
-            height=(None, None),
+        return find_slice_peak_idxs(
+            y_slice,
+            peak_threshold=diagram_kwargs.get("peak_threshold", None),
+            max_n_peaks=diagram_kwargs.get("max_n_peaks", None),
+            peak_height_rule=diagram_kwargs.get("peak_height_rule", None),
         )
-
-        if max_n_peaks is not None:
-            ordering = np.argsort(-peak_info["peak_heights"], kind="stable")
-            peak_idxs = peak_idxs[ordering][:max_n_peaks]
-
-        return peak_idxs
