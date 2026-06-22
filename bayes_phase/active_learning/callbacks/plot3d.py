@@ -117,37 +117,37 @@ def plot3d(learner: "ActiveLearner"):
     )
 
     # ridges: halo + core so they remain visible
-    if ridge_raw is not None and ridge_z is not None and ridge_raw.numel() > 0:
-        rx = ridge_raw[:, 0].detach().cpu().numpy()
-        ry = ridge_raw[:, 1].detach().cpu().numpy()
-        rz = ridge_z.detach().cpu().numpy()
+    # if ridge_raw is not None and ridge_z is not None and ridge_raw.numel() > 0:
+    #     rx = ridge_raw[:, 0].detach().cpu().numpy()
+    #     ry = ridge_raw[:, 1].detach().cpu().numpy()
+    #     rz = ridge_z.detach().cpu().numpy()
 
-        # halo (white)
-        fig.add_trace(
-            go.Scatter3d(
-                x=rx,
-                y=ry,
-                z=rz,
-                mode="markers",
-                marker=dict(size=9, color="white", opacity=1.0),
-                hovertemplate=None,
-                hoverinfo="skip",
-                showlegend=False,
-            )
-        )
+    #     # halo (white)
+    #     fig.add_trace(
+    #         go.Scatter3d(
+    #             x=rx,
+    #             y=ry,
+    #             z=rz,
+    #             mode="markers",
+    #             marker=dict(size=9, color="white", opacity=1.0),
+    #             hovertemplate=None,
+    #             hoverinfo="skip",
+    #             showlegend=False,
+    #         )
+    #     )
 
-        # core (method color)
-        fig.add_trace(
-            go.Scatter3d(
-                x=rx,
-                y=ry,
-                z=rz,
-                mode="markers",
-                marker=dict(size=6, color=ridge_color, opacity=1.0),
-                hovertemplate="Ridge Point - Temp: %{x}<br>Theta: %{y}<br>",
-                showlegend=False,
-            )
-        )
+    #     # core (method color)
+    #     fig.add_trace(
+    #         go.Scatter3d(
+    #             x=rx,
+    #             y=ry,
+    #             z=rz,
+    #             mode="markers",
+    #             marker=dict(size=6, color=ridge_color, opacity=1.0),
+    #             hovertemplate="Ridge Point - Temp: %{x}<br>Theta: %{y}<br>",
+    #             showlegend=False,
+    #         )
+    #     )
 
     # sampled points: black X
     if xs.numel() > 0:
@@ -205,4 +205,3 @@ def plot3d(learner: "ActiveLearner"):
 
     # save
     fig.write_html(str(savepath_html), include_plotlyjs=True, full_html=True)
-    fig.write_image(str(savepath_png), width=1600, height=900, scale=2)
