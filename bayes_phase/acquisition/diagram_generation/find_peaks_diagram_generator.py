@@ -12,15 +12,17 @@ if TYPE_CHECKING:
 from .base_diagram_generator import DiagramOutput
 from bayes_phase.utils import eval_context
 from bayes_phase.data_io.base_data_generator import BaseDataGenerator
+from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 
 
 class FindPeaksDiagramGenerator(BaseDiagramGenerator):
     def __init__(
         self,
-        learner: "ActiveLearner",
+        learner,
         n_temp_grid: int = 100,
         peak_threshold: Optional[float] = None,
-        max_n_peaks: Optional[int] = 2,
+        max_n_peaks: Optional[int] = None,
+        peak_height_rule: Optional[str] = None,
         jitter: float = 1e-12,
     ):
         """Initialize a generator of phase diagram samples using peak-finding.
@@ -51,6 +53,7 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self.points = torch.stack([X.ravel(), Y.ravel()]).T
         self.peak_threshold = peak_threshold
         self.max_n_peaks = max_n_peaks
+        self.peak_height_rule = peak_height_rule
         self.jitter = jitter
         self._update()
 
@@ -93,21 +96,19 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
                 (self.n_temp_grid, self.n_theta_grid)
             )
         peak_locations = []
+
         for i, row in enumerate(sample.T):
-            if self.peak_threshold is not None:
-                scale = (row.amax() - row.amin()).item()
-                prominence = self.peak_threshold * scale
-            else:
-                prominence = None
-            peaks, peak_info = find_peaks(
-                row - row.amin(), prominence=prominence, height=0.0
+            peak_idxs = find_slice_peak_idxs(
+                row,
+                peak_threshold=self.peak_threshold,
+                max_n_peaks=self.max_n_peaks,
+                peak_height_rule=self.peak_height_rule,
             )
-            if self.max_n_peaks is not None:  # Return only n peaks with greatest height
-                ordering = np.argsort(-peak_info["peak_heights"], stable=True)
-                peaks = peaks[ordering][: self.max_n_peaks]
-            temps = self.temp_grid[peaks]
+
+            temps = self.temp_grid[peak_idxs]
             thetas = self.theta_grid[i].tile(temps.numel())
             peak_locations.append(torch.stack((temps, thetas)).T)
+
 
         peaks = torch.vstack(peak_locations)
         peaks = self._remove_duplicate_points(peaks)

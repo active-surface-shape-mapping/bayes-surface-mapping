@@ -1,7 +1,6 @@
 import torch
 from pathlib import Path
 import plotly.graph_objects as go
-from bayes_phase.acquisition import find_ridges
 
 
 @torch.no_grad()
@@ -148,4 +147,3 @@ def plot_acq(learner: "ActiveLearner"):
 
     # save
     fig.write_html(str(savepath_html), include_plotlyjs=True, full_html=True)
-    fig.write_image(str(savepath_png), width=1600, height=900, scale=2)
