@@ -15,7 +15,10 @@ from bayes_phase.utils import eval_context
 
 
 def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") -> torch.Tensor:
-    """MST in normalized space, forbidding edges within same discrete theta level."""
+    """
+    MST in normalized space, forbidding selected edges.
+    These MSTs are strictly a visual convenience for plotting.
+    """
     x = x_norm.detach().to(dtype=torch.float64, device="cpu")
     n = x.shape[0]
     if n < 2:
@@ -27,14 +30,22 @@ def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") ->
     # Assume normalized k/n_theta -> map back to integer k
     theta_idx = (x[:, 1] * n_theta).round().to(torch.int64)
 
-    # No connections within a theta-value
-    keep = theta_idx[i] != theta_idx[j] 
+    # No connections within a theta-value.
+    keep = theta_idx[i] != theta_idx[j]
     i, j = i[keep], j[keep]
 
-    # Limit connections across an excessive range of values
+    # Forbid connections where either endpoint is in a forbidden low-temp region.
+    x_raw = learner.data_generator.untransform_inputs(x)
+    forbidden = _is_forbidden_region(x_raw, learner)
+
+    # No connections if either points is in a forbidden low-temp region
+    keep = ~(forbidden[i] | forbidden[j])
+    i, j = i[keep], j[keep]
+
+    # Limit connections across an excessive range of values.
     dist = (x[i] - x[j]).norm(dim=1)
-    keep2 = dist <= learner.config.max_tree_conn_dist
-    i, j = i[keep2], j[keep2]
+    keep = dist <= learner.config.max_tree_conn_dist
+    i, j = i[keep], j[keep]
 
     # Weight by Euclidean distance in (T_norm, theta_norm):
     w = (x[i] - x[j]).norm(dim=1).tolist()
@@ -43,8 +54,10 @@ def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") ->
     G = nx.Graph()
     G.add_nodes_from(range(n))
     G.add_weighted_edges_from((int(a), int(b), float(c)) for a, b, c in zip(i, j, w))
-    mst = nx.minimum_spanning_tree(G) 
+
+    mst = nx.minimum_spanning_tree(G)
     return torch.tensor(list(mst.edges()), dtype=torch.long)
+
 
 
 def _plot_mst_diagrams(
@@ -60,11 +73,14 @@ def _plot_mst_diagrams(
     n_theta = learner.data_generator.theta_range
 
     for k, out in enumerate(diagrams):
-        diagram = out.peaks        # (n, 2) points in normalized space
-        sample = out.sample        
+        diagram = out.peaks
+
+        if diagram.shape[0] < 2:
+            continue
+
         c = color if color is not None else cmap(k % 10)
 
-        edges = _create_mst(diagram, n_theta=n_theta, learner = learner)
+        edges = _create_mst(diagram, n_theta=n_theta, learner=learner)
 
         xys = learner.data_generator.untransform_inputs(diagram)  # plot in physical units
 
@@ -353,3 +369,72 @@ def plot_mst(
     plt.tight_layout()
     plt.savefig(savepath, dpi=100)
     plt.close()
+
+
+
+def _filter_points_above_slice_median(
+    peaks: torch.Tensor,
+    sample: torch.Tensor,
+    learner: "ActiveLearner",
+) -> torch.Tensor:
+    """
+    Helper that allows us to draw connections only between points above the median of a slice. 
+    Doesn't affect active learning computations, just clarity of plots.
+    """
+
+    if peaks.numel() == 0:
+        return peaks
+
+    n_theta = learner.data_generator.theta_range
+    n_temp = sample.shape[0]
+
+    keep = []
+
+    for p in peaks:
+        temp_u = p[0]
+        theta_u = p[1]
+
+        theta_idx = int(round(float(theta_u * n_theta)))
+        temp_idx = int(round(float(temp_u * (n_temp - 1))))
+
+        theta_idx = max(0, min(theta_idx, sample.shape[1] - 1))
+        temp_idx = max(0, min(temp_idx, sample.shape[0] - 1))
+
+        slice_y = sample[:, theta_idx]
+        slice_median = torch.median(slice_y)
+
+        keep.append(sample[temp_idx, theta_idx] > slice_median)
+
+    keep = torch.tensor(keep, dtype=torch.bool, device=peaks.device)
+    return peaks[keep]
+
+
+def _is_forbidden_region(x_raw: torch.Tensor, learner: "ActiveLearner") -> torch.Tensor:
+    """
+    True for points in regions where MST connections should be forbidden.
+
+    Config format:
+        forbidden_tree_regions:
+          - theta_min: 2
+            theta_max: 6
+            temp_max: 200
+    """
+    regions = getattr(learner.config, "forbidden_tree_regions", [])
+
+    temp = x_raw[:, 0]
+    theta = x_raw[:, 1].round().to(torch.int64)
+
+    forbidden = torch.zeros(x_raw.shape[0], dtype=torch.bool, device=x_raw.device)
+
+    for region in regions:
+        if region["theta_min"] > region["theta_max"]:
+            raise ValueError(
+                f"Invalid forbidden_tree_region: {region}"
+            )
+        forbidden |= (
+            (theta >= int(region["theta_min"]))
+            & (theta <= int(region["theta_max"]))
+            & (temp < float(region["temp_max"]))
+        )
+
+    return forbidden
