@@ -9,6 +9,7 @@ from jaxtyping import Float
 from scipy.signal import find_peaks
 from tqdm import tqdm
 
+from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 from bayes_phase.utils import eval_context
 
 if TYPE_CHECKING:
@@ -41,6 +42,10 @@ class HullGridSpec:
         Dictionary mapping integer theta index -> row indices in x_eval / hull vector.
     peak_idxs_by_theta:
         Dictionary mapping integer theta index -> row indices in peak_x_eval.
+    x_eval_np_by_theta:
+        Unchanging x values for eval grid.
+    peak_x_eval_np_by_theta:
+        Unchanging dense x values for peak finding.
     """
     x_eval: Float[torch.Tensor, "n_total 2"]
     peak_x_eval: Float[torch.Tensor, "n_peak_total 2"]
@@ -49,6 +54,8 @@ class HullGridSpec:
     theta_values: Float[torch.Tensor, "n_theta"]
     idxs_by_theta: dict[int, slice]
     peak_idxs_by_theta: dict[int, slice]
+    x_eval_np_by_theta: dict[int, np.ndarray]
+    peak_x_eval_np_by_theta: dict[int, np.ndarray]
 
 
 class HullVariance:
@@ -81,7 +88,7 @@ class HullVariance:
             getattr(self.learner.config, "hull_n_temp_peak_grid", 100)
         )
         self.sample_jitter = float(
-            getattr(self.learner.config, "hull_sample_jitter", 1e-7)
+            getattr(self.learner.config, "hull_sample_jitter", 1e-8)
         )
 
         self.grid_spec = self._build_hull_grid()
@@ -131,12 +138,13 @@ class HullVariance:
                     x_cand,
                     y_fant.reshape(1),
                 )
-                fantasy_model.eval()
 
                 # Compute variance after conditioning on fantasy
-                post_var = self._estimate_integrated_hull_variance_from_model(
-                    fantasy_model
-                )
+                with eval_context(fantasy_model):
+                    post_var = self._estimate_integrated_hull_variance_from_model(
+                        fantasy_model
+                    )
+
                 post_vars.append(post_var)
 
             # Compute average sum posterior variance
@@ -200,6 +208,20 @@ class HullVariance:
         x_eval = torch.vstack(x_blocks)
         peak_x_eval = torch.vstack(peak_x_blocks)
 
+        x_eval_np_by_theta = {}
+        peak_x_eval_np_by_theta = {}
+
+        for theta_idx in theta_indices:
+            sl = idxs_by_theta[int(theta_idx)]
+            peak_sl = peak_idxs_by_theta[int(theta_idx)]
+
+            x_eval_np_by_theta[int(theta_idx)] = (
+                x_eval[sl, 0].detach().cpu().numpy()
+            )
+            peak_x_eval_np_by_theta[int(theta_idx)] = (
+                peak_x_eval[peak_sl, 0].detach().cpu().numpy()
+            )
+
         return HullGridSpec(
             x_eval=x_eval,
             peak_x_eval=peak_x_eval,
@@ -208,6 +230,8 @@ class HullVariance:
             theta_values=theta_values,
             idxs_by_theta=idxs_by_theta,
             peak_idxs_by_theta=peak_idxs_by_theta,
+            x_eval_np_by_theta=x_eval_np_by_theta,
+            peak_x_eval_np_by_theta=peak_x_eval_np_by_theta,
         )
 
     @torch.no_grad()
@@ -259,8 +283,16 @@ class HullVariance:
             f"Expected covariance {(x_eval.shape[0], x_eval.shape[0])}, got {cov.shape}"
         )
 
-        mvn = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov)
-        f_samples = mvn.sample((n_samples,))  # (n_samples, n_peak_total)
+        L = torch.linalg.cholesky(cov)
+
+        eps = torch.randn(
+            n_samples,
+            mean.numel(),
+            device=device,
+            dtype=dtype,
+        )
+
+        f_samples = mean + eps @ L.T
 
         hull_vectors = []
         for k in range(n_samples):
@@ -277,75 +309,59 @@ class HullVariance:
         Convert one sampled function on the dense stacked peak grid into a
         concatenated global hull vector across all theta slices.
         """
+        assert f_sample.ndim == 1, f"Expected 1D f_sample, got shape {f_sample.shape}"
+        assert f_sample.shape[0] == self.grid_spec.peak_x_eval.shape[0], (
+            f"Expected f_sample length {self.grid_spec.peak_x_eval.shape[0]}, "
+            f"got {f_sample.shape[0]}"
+        )
+
         hull_parts = []
 
         for theta_idx, sl in self.grid_spec.idxs_by_theta.items():
             peak_sl = self.grid_spec.peak_idxs_by_theta[theta_idx]
 
-            x_eval_slice = self.grid_spec.x_eval[sl, 0]
-            x_peak_slice = self.grid_spec.peak_x_eval[peak_sl, 0]
+            x_eval_np = self.grid_spec.x_eval_np_by_theta[theta_idx]
+            x_peak_np = self.grid_spec.peak_x_eval_np_by_theta[theta_idx]
             y_peak_slice = f_sample[peak_sl]
 
             hull_y = self._peak_hull_values_on_grid(
-                x_nodes=x_peak_slice,
+                x_nodes_np=x_peak_np,
                 y_nodes=y_peak_slice,
-                x_eval=x_eval_slice,
+                x_eval_np=x_eval_np,
             )
-            hull_parts.append(hull_y)
 
-        assert f_sample.ndim == 1, f"Expected 1D f_sample, got shape {f_sample.shape}"
-        assert f_sample.shape[0] == self.grid_spec.peak_x_eval.shape[0], (
-            f"Expected f_sample length {self.grid_spec.peak_x_eval.shape[0]}, got {f_sample.shape[0]}"
-        )
+            hull_parts.append(hull_y)
 
         return torch.cat(hull_parts, dim=0)
 
     def _peak_hull_values_on_grid(
         self,
-        x_nodes: Float[torch.Tensor, "n"],
+        x_nodes_np: np.ndarray,
         y_nodes: Float[torch.Tensor, "n"],
-        x_eval: Float[torch.Tensor, "m"],
+        x_eval_np: np.ndarray,
     ) -> Float[torch.Tensor, "m"]:
         """
         Build a 'peak hull' using the same peak-finding logic as
         FindPeaksDiagramGenerator, but always include the min-T and max-T
         endpoints as hull vertices.
-
-        Vertices are:
-        - left endpoint
-        - selected find_peaks peaks
-        - right endpoint
-
-        This keeps the hull vector finite even when no interior peaks are found on a slice.
         """
-        device = x_nodes.device
-        dtype = x_nodes.dtype
+        device = y_nodes.device
+        dtype = y_nodes.dtype
 
-        x_np = x_nodes.detach().cpu().numpy()
         y_np = y_nodes.detach().cpu().numpy()
-        x_eval_np = x_eval.detach().cpu().numpy()
 
-        diagram_kwargs = getattr(self.learner.config, "diagram_generator_kwargs", {})
-        peak_threshold = diagram_kwargs.get("peak_threshold", None)
-        max_n_peaks = diagram_kwargs.get("max_n_peaks", 2)
-
-        row = y_nodes.detach().cpu()
-
-        if peak_threshold is not None:
-            scale = (row.amax() - row.amin()).item()
-            prominence = peak_threshold * scale
-        else:
-            prominence = None
-
-        peak_idxs, peak_info = find_peaks(
-            y_np - np.min(y_np),
-            prominence=prominence,
-            height=(None, None),
+        diagram_kwargs = getattr(
+            self.learner.config,
+            "diagram_generator_kwargs",
+            {},
         )
 
-        if max_n_peaks is not None:
-            ordering = np.argsort(-peak_info["peak_heights"], kind="stable")
-            peak_idxs = peak_idxs[ordering][:max_n_peaks]
+        peak_idxs = find_slice_peak_idxs(
+            y_nodes,
+            peak_threshold=diagram_kwargs.get("peak_threshold", None),
+            max_n_peaks=diagram_kwargs.get("max_n_peaks", None),
+            peak_height_rule=diagram_kwargs.get("peak_height_rule", None),
+        )
 
         # Always include slice endpoints.
         endpoint_idxs = np.array([0, len(y_np) - 1], dtype=int)
@@ -354,7 +370,7 @@ class HullVariance:
         vertex_idxs = np.unique(np.concatenate([endpoint_idxs, peak_idxs]))
         vertex_idxs = np.sort(vertex_idxs)
 
-        x_vertices = x_np[vertex_idxs]
+        x_vertices = x_nodes_np[vertex_idxs]
         y_vertices = y_np[vertex_idxs]
 
         y_out = np.interp(
@@ -365,7 +381,11 @@ class HullVariance:
             right=y_vertices[-1],
         )
 
-        return torch.as_tensor(y_out, device=device, dtype=dtype)
+        return torch.as_tensor(
+            y_out,
+            device=device,
+            dtype=dtype,
+        )
 
     @torch.no_grad()
     def _estimate_integrated_hull_variance_from_model(
@@ -408,4 +428,4 @@ class HullVariance:
 
         pointwise_var = hull_samples.var(dim=0, unbiased=True).clamp_min(1e-12) # unbiased=True is Bessel
 
-        return pointwise_var.sum()
+        return pointwise_var.mean()

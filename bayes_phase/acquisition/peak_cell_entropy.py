@@ -376,6 +376,7 @@ class PeakCellEntropy:
                 (temp_bin_idxs >= 0)
                 & (temp_bin_idxs < self.grid_spec.n_temp_bins)
             )
+
             if not np.all(valid):
                 invalid_peaks = peak_T_raw[~valid]
                 warnings.warn(
