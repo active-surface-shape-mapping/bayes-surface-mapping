@@ -12,6 +12,7 @@ from jsonlines import jsonlines
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
 from bayes_phase.models import TwiceDifferentiableModel
+from bayes_phase.models.standard_gp import StandardExactGP
 from bayes_phase.models import kernels
 from bayes_phase.active_learning import callbacks
 from bayes_phase.acquisition import diagram_generation
@@ -168,6 +169,14 @@ class ActiveLearner:
             init_x = torch.vstack([lower, upper])
             init_y_mean, init_y_sigma = self._observe(init_x)
             return init_x, init_y_mean, init_y_sigma
+        elif self.config.init_data_strategy == "random":
+            init_x = torch.rand(self.config.init_n_points, 2)
+
+            init_x_quantized = self._quantize_theta(init_x)
+
+            init_y_mean, init_y_sigma = self._observe(init_x_quantized)
+
+            return init_x_quantized, init_y_mean, init_y_sigma
         else:
             raise NotImplementedError(
                 f"Unknown init_data_strategy {self.config.init_data_strategy}"
@@ -254,16 +263,47 @@ class ActiveLearner:
                 f"Unknown cand_data_strategy {self.config.cand_data_strategy}"
             )
 
-    def _init_model(self) -> TwiceDifferentiableModel:
+    def _init_model(self):
         MeanModuleClass = getattr(means, self.config.mean_module)
+
         lengthscale_prior = gpytorch.priors.LogNormalPrior(-1.5, 0.5)
         mean_module = MeanModuleClass(**self.config.mean_module_kwargs)
+
+        if self.config.base_kernel == "RBFKernel":
+            base_kernel = gpytorch.kernels.RBFKernel(
+                lengthscale_prior=lengthscale_prior,
+                **self.config.base_kernel_kwargs,
+            )
+            return StandardExactGP(
+                self.train_x,
+                self.train_y,
+                base_kernel,
+                mean_module,
+            )
+
+        if self.config.base_kernel == "Matern52Kernel":
+            base_kernel = gpytorch.kernels.MaternKernel(
+                nu=2.5,
+                lengthscale_prior=lengthscale_prior,
+                **self.config.base_kernel_kwargs,
+            )
+            return StandardExactGP(
+                self.train_x,
+                self.train_y,
+                base_kernel,
+                mean_module,
+            )
+
         BaseKernelClass = getattr(kernels, self.config.base_kernel)
         base_kernel = BaseKernelClass(
-            lengthscale_prior=lengthscale_prior, **self.config.base_kernel_kwargs
+            lengthscale_prior=lengthscale_prior,
+            **self.config.base_kernel_kwargs,
         )
         return TwiceDifferentiableModel(
-            self.train_x, self.train_y, base_kernel, mean_module
+            self.train_x,
+            self.train_y,
+            base_kernel,
+            mean_module,
         )
 
     def _fit_model(self):
@@ -289,6 +329,19 @@ class ActiveLearner:
             The acquired point(s) and the mean and standard deviation of the
             corresponding observed y-values.
         """
+
+        # Check that derivatives are available for acquisition functions that rely on them.
+        if self._uses_value_only_model():
+            derivative_acqs = {
+                "mutual_information",
+            }
+
+            if self.config.acquisition_function in derivative_acqs:
+                raise ValueError(
+                    f"{self.config.acquisition_function} requires derivative-capable "
+                    "TwiceDifferentiableModel."
+                )
+            
         # Random
         if self.config.acquisition_function == "random":
             next_x = torch.distributions.Uniform(
@@ -343,6 +396,10 @@ class ActiveLearner:
             raise NotImplementedError(
                 f"Unrecognized acquisition function {self.config.acquisition_function}"
             )
+
+
+    def _uses_value_only_model(self) -> bool:
+        return isinstance(self.model, StandardExactGP)
 
     def _normalize_y(
         self,
@@ -421,9 +478,21 @@ class ActiveLearner:
         return cllbcks
 
     def _run_callbacks(self):
-        """Run any per-step callbacks, e.g. for plotting, logging, etc."""
+        """Run callbacks, optionally skipping some according to callback_every."""
         for fn in self.callbacks:
-            fn(self)
+            every = int(self.config.callback_every.get(fn.__name__, 1))
+
+            if every <= 1:
+                fn(self)
+                continue
+
+            should_run = (
+                self._i == 0
+                or (self._i + 1) % every == 0
+            )
+
+            if should_run:
+                fn(self)
 
     def _observe(
         self, u: Float[torch.Tensor, "n 2"]
