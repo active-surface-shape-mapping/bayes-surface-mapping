@@ -368,8 +368,14 @@ class PeakCellEntropy:
             temp_bin_idxs = np.searchsorted(
                 self.grid_spec.temp_edges_raw,
                 peak_T_raw,
-                side="right",
+                side="left",
             ) - 1
+
+            # Global minimum edge goes in the first bin.
+            temp_bin_idxs[np.isclose(
+                peak_T_raw,
+                self.grid_spec.temp_edges_raw[0],
+            )] = 0
 
             # Verify peaks fall within a bin.
             valid = (

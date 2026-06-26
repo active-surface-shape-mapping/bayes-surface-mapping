@@ -152,6 +152,7 @@ class ActiveLearnerConfig:
         default_factory=default_callback_every
     )
     use_log_transform: bool = True
+    show_sampled_locations: bool = True
     base_savepath: str = "${base_savepath:}"
     diagram_generator: DiagramGenerator = DiagramGenerator.FIND_PEAKS
     diagram_generator_kwargs: dict[str, Any] = field(
