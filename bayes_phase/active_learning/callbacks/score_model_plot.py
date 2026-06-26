@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 import numpy as np
 import pandas as pd
+import warnings
 
 import shapely as shp
 import geopandas as gpd
@@ -95,33 +96,65 @@ def _generate_grid(
     return gpd.GeoDataFrame(records, geometry="geometry", crs=None)
 
 
-def _intersect_ridge_points_grid(
+def _assign_ridge_points_to_grid(
     learner: "ActiveLearner",
     grid: gpd.GeoDataFrame,
     ridge_x: torch.Tensor,
 ) -> gpd.GeoDataFrame:
-    """Return grid cells containing ridge points at integer theta values."""
+    """Assign each ridge point to exactly one scoring cell.
+    When a point falls on the boundary between two grid boxes, it is assigned to the lower box.
+    """
+
+    # Check if ridges are present
     if ridge_x.numel() == 0:
         out = grid.iloc[0:0].copy()
         out["contains_ridge_point"] = pd.Series(dtype=bool)
         return out
 
-    # Physical coordinates
+    # Convert to physical units
     xys = learner.data_generator.untransform_inputs(ridge_x.detach()).cpu().numpy()
+    T = xys[:, 0]
+    theta = xys[:, 1]
 
-    pts = pd.DataFrame({
-        "Temperature": xys[:, 0],
-        "Theta": xys[:, 1],
-    })
+    # Reconstruct bin edges from the scoring grid.
+    t_edges = np.r_[grid["t_min"].unique(), grid["t_max"].max()]
+    t_edges = np.unique(t_edges)
 
-    point_gdf = gpd.GeoDataFrame(
-        pts,
-        geometry=gpd.points_from_xy(pts["Temperature"], pts["Theta"]),
-        crs=grid.crs,
+    theta_edges = np.r_[grid["theta_min"].unique(), grid["theta_max"].max()]
+    theta_edges = np.unique(theta_edges)
+
+    # Assign values to bins. Values on edges are assigned to the lower bin, except in the lowest temperature box.
+    t_bin = np.searchsorted(t_edges, T, side="left") - 1
+    theta_bin = np.searchsorted(theta_edges, theta, side="left") - 1
+    t_bin[np.isclose(T, t_edges[0])] = 0
+    theta_bin[np.isclose(theta, theta_edges[0])] = 0
+
+    valid = (
+        (t_bin >= 0) & (t_bin < len(t_edges) - 1) &
+        (theta_bin >= 0) & (theta_bin < len(theta_edges) - 1)
     )
 
-    hits = gpd.sjoin(grid, point_gdf, how="inner", predicate="contains")
-    hits = hits[~hits.index.duplicated(keep="first")].copy()
+    if not np.all(valid):
+        warnings.warn(
+            "Ridge points found outside the scoring grid. "
+            "Check grid bounds and ridge values.",
+            RuntimeWarning,
+        )
+
+    # Bin indices.
+    key_to_index = {
+        (int(row.t_bin), int(row.theta_bin)): idx
+        for idx, row in grid.iterrows()
+    }
+
+    # Convert bin coordinates into the corresponding grid row index in the geodataframe.
+    hit_indices = {
+        key_to_index[(int(tb), int(thb))]
+        for tb, thb in zip(t_bin[valid], theta_bin[valid])
+    }
+
+    # Mark occupied grid cells.
+    hits = grid.loc[sorted(hit_indices)].copy()
     hits["contains_ridge_point"] = True
     return hits
 
@@ -231,7 +264,7 @@ def _calc_score(
     for out in diagrams:
         ridge_x = out.peaks
 
-        hit_gdf = _intersect_ridge_points_grid(
+        hit_gdf = _assign_ridge_points_to_grid(
             learner=learner,
             grid=grid,
             ridge_x=ridge_x,
@@ -354,7 +387,7 @@ def _compute_hit_counts(
     for out in diagrams:
         ridge_x = out.peaks
 
-        hit_gdf = _intersect_ridge_points_grid(
+        hit_gdf = _assign_ridge_points_to_grid(
             learner=learner,
             grid=grid,
             ridge_x=ridge_x,
@@ -398,7 +431,7 @@ def score_model_plot(learner: "ActiveLearner"):
     gt_ridge_x = gt_item.peaks
     gt_sample = gt_item.sample
 
-    true_hits = _intersect_ridge_points_grid(
+    true_hits = _assign_ridge_points_to_grid(
         learner=learner,
         grid=scoring_grid,
         ridge_x=gt_ridge_x,
@@ -513,12 +546,13 @@ def score_model_plot(learner: "ActiveLearner"):
     )
     ax[0, 2].set_aspect("auto")
 
-    # Training data and newest selected point on right panel
-    xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
-    ax[0, 1].scatter(xs[:, 0], xs[:, 1], color="black", marker=".", zorder=6)
+    # Training data and newest selected point on middle panel
+    if getattr(learner.config, "show_sampled_locations", True):
+        xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
+        ax[0, 1].scatter(xs[:, 0], xs[:, 1], color="black", marker=".", zorder=6)
 
-    new_xs = learner.data_generator.untransform_inputs(learner.next_x.detach())
-    ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100, zorder=7)
+        new_xs = learner.data_generator.untransform_inputs(learner.next_x.detach())
+        ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100, zorder=7)
 
     for i in range(3):
         ax[0, i].set_xlabel("Temperature")
