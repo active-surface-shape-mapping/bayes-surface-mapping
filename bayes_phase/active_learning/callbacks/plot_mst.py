@@ -86,8 +86,8 @@ def _plot_mst_diagrams(
             ax.scatter(
                 xys[:, 0],
                 xys[:, 1],
-                marker="|",
-                s=200,
+                marker="x",
+                s=40,
                 color=c,
             )
             continue
