@@ -80,18 +80,27 @@ def _plot_mst_diagrams(
 
         c = color if color is not None else cmap(k % 10)
 
+        xys = learner.data_generator.untransform_inputs(diagram)
+
+        if not learner.config.connect_the_dots:
+            ax.scatter(
+                xys[:, 0],
+                xys[:, 1],
+                marker="|",
+                s=200,
+                color=c,
+            )
+            continue
+
         edges = _create_mst(diagram, n_theta=n_theta, learner=learner)
 
-        xys = learner.data_generator.untransform_inputs(diagram)  # plot in physical units
-
-        # Optional: dots at ridge points
-        if learner.config.show_points_tree_graphs == True:
+        if learner.config.show_points_tree_graphs:
             ax.scatter(xys[:, 0], xys[:, 1], s=5, color=c)
 
         if learner.config.tree_graph_type == "MST":
             for a, b in edges.tolist():
                 ax.plot(xys[[a, b], 0], xys[[a, b], 1], color=c, lw=1)
-        
+
         elif learner.config.tree_graph_type == "MSTCurve":
             branches = _identify_branches(ridge_points=xys, edges=edges)
             splines = _fit_mst_curves(branches)
