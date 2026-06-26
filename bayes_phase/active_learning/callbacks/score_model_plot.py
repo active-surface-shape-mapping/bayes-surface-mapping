@@ -568,9 +568,11 @@ def score_model_plot(learner: "ActiveLearner"):
         true_hits=true_hits,
     )
 
+    n_plot_diagrams = min(8, len(posterior_diagrams))
+
     _plot_mst_diagrams_with_grid(
         learner=learner,
-        diagrams=iter(posterior_diagrams),
+        diagrams=iter(posterior_diagrams[:n_plot_diagrams]),
         ax=ax[0, 1],
         color=None,
         grid=scoring_grid,
