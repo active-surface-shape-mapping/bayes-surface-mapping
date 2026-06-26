@@ -35,6 +35,11 @@ class ActiveLearner:
         self._t0 = time()
         self.config = config
         self.data_generator = self._init_dataset()
+        self._sobol_engine = torch.quasirandom.SobolEngine(
+            dimension=2,
+            scramble=True,
+            seed=self.config.init_seed,
+        )
         self.train_x, self.train_y_orig, self.train_y_sigma = self._init_train_data()
         self.train_y, self._y_mean, self._y_std = self._normalize_y(self.train_y_orig)
         self.model = self._init_model()
@@ -103,11 +108,7 @@ class ActiveLearner:
             corresponding observed y-values.
         """
         if self.config.init_data_strategy == "sobol":
-            # Generate Sobol sequence on unit square
-            engine = torch.quasirandom.SobolEngine(
-                dimension=2, scramble=True, seed=self.config.init_seed
-            )
-            init_x = engine.draw(self.config.init_n_points)
+            init_x = self._sobol_engine.draw(self.config.init_n_points)
             init_x_quantized = self._quantize_theta(init_x)
             init_y_mean, init_y_sigma = self._observe(init_x_quantized)
             return init_x_quantized, init_y_mean, init_y_sigma
@@ -347,6 +348,18 @@ class ActiveLearner:
             next_x = torch.distributions.Uniform(
                 torch.tensor(0.0), torch.tensor(1.0)
             ).sample((1, 2))
+            next_x_quantized = self._quantize_theta(next_x)
+            next_y_mean, next_y_sigma = self._observe(next_x_quantized)
+            self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))
+            return next_x_quantized, next_y_mean, next_y_sigma
+        
+        # Sobol
+        if self.config.acquisition_function == "sobol":
+            if self.config.init_data_strategy == "sobol":
+                next_x = self._sobol_engine.draw(1)
+            else:
+                next_x = self._sobol_acq_engine.draw(1)
+
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
             self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))

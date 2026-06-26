@@ -84,6 +84,7 @@ class AcquisitionFunction(StrEnum):
     RANDOM = "random"
     EIG = "eig"
     MI = "mutual_information"
+    SOBOL = "sobol"
     HULL = "hull_variance"
     CELL = "peak_cell"
 
