@@ -14,7 +14,10 @@ class StandardExactGP(gpytorch.models.ExactGP):
         mean_module: Optional[gpytorch.means.Mean] = None,
     ):
         # Create likelihood object
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_prior=None)
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(
+            noise_prior=None,
+            noise_constraint=gpytorch.constraints.GreaterThan(1e-7),
+            )
 
         # Initialize parent class
         super().__init__(
