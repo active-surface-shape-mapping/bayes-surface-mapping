@@ -8,6 +8,7 @@ from tqdm import tqdm
 from time import time
 from pathlib import Path
 from jsonlines import jsonlines
+import warnings
 
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
@@ -34,7 +35,11 @@ class ActiveLearner:
         """
         self._t0 = time()
         self.config = config
-        self.data_generator = self._init_dataset()
+        self.init_data_generator = self._init_dataset(self.config.init_dataset_paths)
+        self.data_generator = self._init_dataset(self.config.sampling_dataset_paths)
+        self.ground_truth_data_generator = self._init_dataset(
+            self.config.ground_truth_dataset_paths
+        )
         self._sobol_engine = torch.quasirandom.SobolEngine(
             dimension=2,
             scramble=True,
@@ -79,7 +84,7 @@ class ActiveLearner:
             self._ti_callbacks = time()
             self._log()
 
-    def _init_dataset(self) -> BaseDataGenerator:
+    def _init_dataset(self, paths: list[str]) -> BaseDataGenerator:
         """Initialize the data generator object.
 
         For now, this uses simulated data, but could be replaced by a subroutine
@@ -90,7 +95,7 @@ class ActiveLearner:
         data_generator
             The object for generating observations/data.
         """    
-        return SimulatedDataGenerator(self.config.dataset_paths)
+        return SimulatedDataGenerator(paths)
 
     def _init_train_data(
         self,
@@ -110,7 +115,10 @@ class ActiveLearner:
         if self.config.init_data_strategy == "sobol":
             init_x = self._sobol_engine.draw(self.config.init_n_points)
             init_x_quantized = self._quantize_theta(init_x)
-            init_y_mean, init_y_sigma = self._observe(init_x_quantized)
+            init_y_mean, init_y_sigma = self._observe(
+                init_x_quantized,
+                data_generator=self.init_data_generator,
+            )
             return init_x_quantized, init_y_mean, init_y_sigma
         elif self.config.init_data_strategy == "marginal_sobol":
             # Generate Sobol sequences on 1-d temperature marginals
@@ -136,7 +144,10 @@ class ActiveLearner:
             init_x = torch.vstack(
                 [torch.hstack(init_temps), torch.hstack(init_thetas)]
             ).T
-            init_y_mean, init_y_sigma = self._observe(init_x)
+            init_y_mean, init_y_sigma = self._observe(
+                init_x,
+                data_generator=self.init_data_generator,
+            )
             return init_x, init_y_mean, init_y_sigma
         elif self.config.init_data_strategy == "grid":
             # Generate uniform grid
@@ -146,7 +157,10 @@ class ActiveLearner:
             thetas = torch.arange(0, n_theta + 1) / n_theta
             X, Y = torch.meshgrid(temps, thetas, indexing="ij")
             init_x = torch.vstack([X.ravel(), Y.ravel()]).T
-            init_y_mean, init_y_sigma = self._observe(init_x)
+            init_y_mean, init_y_sigma = self._observe(
+                init_x,
+                data_generator=self.init_data_generator,
+            )
             return init_x, init_y_mean, init_y_sigma
         elif self.config.init_data_strategy == "slice_ends":
             # Two endpoint temperatures on every integer-theta slice.
@@ -168,14 +182,20 @@ class ActiveLearner:
             )
 
             init_x = torch.vstack([lower, upper])
-            init_y_mean, init_y_sigma = self._observe(init_x)
+            init_y_mean, init_y_sigma = self._observe(
+                init_x,
+                data_generator=self.init_data_generator,
+            )
             return init_x, init_y_mean, init_y_sigma
         elif self.config.init_data_strategy == "random":
             init_x = torch.rand(self.config.init_n_points, 2)
 
             init_x_quantized = self._quantize_theta(init_x)
 
-            init_y_mean, init_y_sigma = self._observe(init_x_quantized)
+            init_y_mean, init_y_sigma = self._observe(
+                init_x_quantized,
+                data_generator=self.init_data_generator,
+            )
 
             return init_x_quantized, init_y_mean, init_y_sigma
         else:
@@ -355,11 +375,7 @@ class ActiveLearner:
         
         # Sobol
         if self.config.acquisition_function == "sobol":
-            if self.config.init_data_strategy == "sobol":
-                next_x = self._sobol_engine.draw(1)
-            else:
-                next_x = self._sobol_acq_engine.draw(1)
-
+            next_x = self._sobol_engine.draw(1)
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
             self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))
@@ -508,7 +524,9 @@ class ActiveLearner:
                 fn(self)
 
     def _observe(
-        self, u: Float[torch.Tensor, "n 2"]
+        self,
+        u: Float[torch.Tensor, "n 2"],
+        data_generator: BaseDataGenerator | None = None,
     ) -> tuple[Float[torch.Tensor, "n 1"], Float[torch.Tensor, "n 1"]]:
         """Observe measurements and return their mean and standard deviation.
 
@@ -524,7 +542,10 @@ class ActiveLearner:
             The mean and standard deviation of the corresponding observations,
             optionally after a log-transform.
         """
-        y = self.data_generator.measure_uniform(u)
+        if data_generator is None:
+            data_generator = self.data_generator
+
+        y = data_generator.measure_uniform(u)
 
         if self.config.use_log_transform:
             y = y.log()

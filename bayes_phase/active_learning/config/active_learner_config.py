@@ -127,7 +127,9 @@ class ActiveLearnerConfig:
     forbidden_tree_regions: list[dict[str, int | float]] = field(
         default_factory=default_forbidden_tree_regions
     )
-    dataset_paths: list[str] = field(default_factory=default_paths)
+    init_dataset_paths: list[str] = field(default_factory=default_paths)
+    sampling_dataset_paths: list[str] = field(default_factory=default_paths)
+    ground_truth_dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
     mean_module: MeanModule = MeanModule.CONSTANT
