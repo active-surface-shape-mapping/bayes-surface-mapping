@@ -12,11 +12,19 @@ class StandardExactGP(gpytorch.models.ExactGP):
         train_y: torch.Tensor,
         base_kernel: gpytorch.kernels.Kernel,
         mean_module: Optional[gpytorch.means.Mean] = None,
+        train_yvar: Optional[torch.Tensor] = None,
+        learn_additional_noise: bool = True,
     ):
         # Create likelihood object
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(
-            noise_prior=None,
-            noise_constraint=gpytorch.constraints.GreaterThan(1e-7),
+        if train_yvar is None:
+            likelihood = gpytorch.likelihoods.GaussianLikelihood(
+                noise_prior=None,
+                noise_constraint=gpytorch.constraints.GreaterThan(1e-7),
+            )
+        else:
+            likelihood = gpytorch.likelihoods.FixedNoiseGaussianLikelihood(
+                noise=train_yvar.ravel(),
+                learn_additional_noise=learn_additional_noise,
             )
 
         # Initialize parent class
@@ -26,9 +34,9 @@ class StandardExactGP(gpytorch.models.ExactGP):
             likelihood,
         )
 
-        # Default to constant mean
+        # Default to quadratic mean
         if mean_module is None:
-            mean_module = gpytorch.means.ConstantMean()
+            mean_module = gpytorch.means.QuadraticMean()
 
         # Store components
         self.mean_module = mean_module
