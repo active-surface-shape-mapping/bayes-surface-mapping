@@ -310,6 +310,18 @@ def _calc_score(
     metrics = {
         "iteration": int(learner._i),
         "acquisition": str(learner.config.acquisition_function),
+        "sampling_method": learner.last_sampling_method,
+        "n_points_sampled_iter": int(learner.next_x.shape[0]),
+        "n_points_sampled_total": int(learner.n_points_sampled_total),
+        "simulation_cost_iter": float(learner.last_simulation_cost),
+        "simulation_cost_total": float(learner.simulation_cost_total),
+        "wall_clock_time": float(getattr(learner, "_ti", learner._t0) - learner._t0),
+        "total_cost_with_acquisition": float(
+            learner.simulation_cost_total + (getattr(learner, "_ti", learner._t0) - learner._t0)
+        ),
+        "acquisition_raw_value": float(learner.last_acquisition_raw_value),
+        "acquisition_score": float(learner.last_acquisition_score),
+        "n_candidates_evaluated": int(learner.last_n_candidates_evaluated),
         "n_scoring_samples": n_scoring_samples,
         "n_grid_boxes": total_boxes,
         "n_true_boxes": n_true,

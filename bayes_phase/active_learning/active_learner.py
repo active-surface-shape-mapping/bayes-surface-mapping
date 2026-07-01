@@ -21,6 +21,7 @@ from bayes_phase.acquisition import EIG
 from bayes_phase.acquisition import MutualInformation
 from bayes_phase.acquisition.hull_variance import HullVariance
 from bayes_phase.acquisition.peak_cell_entropy import PeakCellEntropy
+from bayes_phase.acquisition.cell_cost import PeakCellCostEntropy
 from bayes_phase.models import means
 
 
@@ -50,6 +51,16 @@ class ActiveLearner:
         self.model = self._init_model()
         self.diagram_generator = self._init_diagram_generator()
         self.callbacks = self._init_callbacks()
+
+        self.simulation_cost_total = 0.0
+        self.n_points_sampled_total = int(self.train_x.shape[0])
+        self.last_sampling_method = None
+        self.last_simulation_cost = 0.0
+        self.last_acquisition_raw_value = float("nan")
+        self.last_acquisition_score = float("nan")
+        self.last_n_candidates_evaluated = 0
+
+        self._validate_sampling_methods()
         self._i = 0
 
     def optimize(self):
@@ -60,9 +71,13 @@ class ActiveLearner:
             self._fit_model()
             # New candidate points:
             cand_seed = self.config.init_seed + 1 + i
-            self.cand_x = self._generate_candidates(seed=cand_seed)
+            self.cand_x, self.cand_actions = self._generate_candidates(seed=cand_seed)
             # Acquire points:
             self.next_x, self.next_y_orig, self.next_y_sigma = self._acquire()
+
+            self.n_points_sampled_total += int(self.next_x.shape[0])
+            self.simulation_cost_total += float(self.last_simulation_cost)
+
             # Update training data:
             self.train_x = torch.vstack([self.train_x, self.next_x])
             self.train_y_orig = torch.vstack([self.train_y_orig, self.next_y_orig])
@@ -206,24 +221,54 @@ class ActiveLearner:
     def _generate_candidates(
         self,
         seed,
-    ) -> Float[torch.Tensor, "n 2"]:
+    ) -> tuple[Float[torch.Tensor, "n 2"], list[dict]]:
         """Initialize candidate acquisition points.
 
         Returns
         -------
-        candidate_points
-            The candidate acquisition points.
+        candidate_points, candidate_actions
+            Candidate point locations for legacy acquisitions, and candidate
+            sampling actions for batch/cost-aware acquisitions.
         """
+        cand_x = self._generate_point_candidates(
+            n_candidates=self.config.iter_n_candidates,
+            seed=seed,
+        )
+
+        batch_acqs = {
+            "peak_cell_cost",
+            "peak_cell_batch",
+            "random_batch",
+        }
+
+        if self.config.acquisition_function not in batch_acqs:
+            return cand_x, []
+
+        cand_actions = self._generate_sampling_actions(seed=seed)
+        return cand_x, cand_actions
+
+    def _generate_point_candidates(
+        self,
+        n_candidates: int,
+        seed: int,
+    ) -> Float[torch.Tensor, "n 2"]:
+        """Generate point candidates in normalized coordinates."""
         if self.config.cand_data_strategy == "sobol":
             # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
                 dimension=2, scramble=True, seed=seed
             )
-            init_x = engine.draw(self.config.iter_n_candidates)
+            init_x = engine.draw(n_candidates)
             init_x_quantized = self._quantize_theta(init_x)
             return init_x_quantized
+
+        if self.config.cand_data_strategy == "random":
+            init_x = torch.rand(n_candidates, 2)
+            init_x_quantized = self._quantize_theta(init_x)
+            return init_x_quantized
+
         if self.config.cand_data_strategy == "marginal_sobol":
-            # Generate Sobol sequence on unit square
+            # Generate Sobol sequences on 1-d temperature marginals
             engine = torch.quasirandom.SobolEngine(
                 dimension=1, scramble=True, seed=seed
             )
@@ -231,14 +276,12 @@ class ActiveLearner:
             init_thetas = []
             for i in range(self.data_generator.theta_range + 1):
                 temps = engine.draw(
-                    self.config.iter_n_candidates
-                    // (self.data_generator.theta_range + 1)
+                    n_candidates // (self.data_generator.theta_range + 1)
                 ).ravel()
                 thetas = (
                     i
                     * torch.ones(
-                        self.config.iter_n_candidates
-                        // (self.data_generator.theta_range + 1)
+                        n_candidates // (self.data_generator.theta_range + 1)
                     )
                     / (self.data_generator.theta_range)
                 )
@@ -248,41 +291,204 @@ class ActiveLearner:
                 [torch.hstack(init_temps), torch.hstack(init_thetas)]
             ).T
             return init_x
-        elif self.config.cand_data_strategy == "marginal_poisson_disk":
-            # Initialize engine:
-            ncandidates = self.config.iter_n_candidates // (
-                self.data_generator.theta_range + 1
-            )
-            # Draw points
-            init_temps = []
-            init_thetas = []
-            for i in range(0, self.data_generator.theta_range + 1):
-                engine = sps.qmc.PoissonDisk(
-                    d=1,
-                    radius=0.5 / ncandidates,
-                    ncandidates=10 * ncandidates,
-                    l_bounds=[0.0],
-                    u_bounds=[1.0],
-                )
-                temps = torch.tensor(engine.random(ncandidates).ravel())
-                thetas = (
-                    i
-                    * torch.ones(
-                        self.config.iter_n_candidates
-                        // (self.data_generator.theta_range + 1)
-                    )
-                    / (self.data_generator.theta_range)
-                )
-                init_temps.append(temps)
-                init_thetas.append(thetas)
-            init_x = torch.vstack(
-                [torch.hstack(init_temps), torch.hstack(init_thetas)]
-            ).T
-            return init_x
+
         else:
             raise NotImplementedError(
                 f"Unknown cand_data_strategy {self.config.cand_data_strategy}"
             )
+
+    def _generate_sampling_actions(self, seed: int) -> list[dict]:
+        """Generate candidate sampling actions for cost-aware acquisitions."""
+        actions = []
+
+        methods_by_name = {
+            method["name"]: method
+            for method in self.config.sampling_methods
+        }
+
+        if "md" in methods_by_name or "lattice" in methods_by_name:
+            actions.extend(
+                self._generate_md_lattice_actions(
+                    methods_by_name=methods_by_name,
+                    seed=seed,
+                )
+            )
+
+        for method in self.config.sampling_methods:
+            if method["name"] in {"md", "lattice"}:
+                continue
+
+            if method["name"] == "nested_sampling":
+                actions.extend(
+                    self._generate_nested_sampling_actions(
+                        method=method,
+                        seed=seed,
+                    )
+                )
+            elif method["name"] == "remd":
+                actions.extend(
+                    self._generate_remd_actions(
+                        method=method,
+                        seed=seed,
+                    )
+                )
+            else:
+                raise NotImplementedError(
+                    f"Unknown sampling method {method['name']}"
+                )
+
+        return actions
+
+    def _generate_md_lattice_actions(
+        self,
+        methods_by_name: dict[str, dict],
+        seed: int,
+    ) -> list[dict]:
+        """Generate shared one-point candidates for MD and lattice."""
+        md_method = methods_by_name.get("md")
+        lattice_method = methods_by_name.get("lattice")
+
+        n_candidates = max(
+            method["n_candidates"]
+            for method in [md_method, lattice_method]
+            if method is not None
+        )
+
+        cand_x = self._generate_point_candidates(
+            n_candidates=n_candidates,
+            seed=seed,
+        )
+        cand_x_raw = self.data_generator.untransform_inputs(cand_x)
+
+        actions = []
+        for i in range(cand_x.shape[0]):
+            temp_raw = float(cand_x_raw[i, 0])
+
+            if lattice_method is not None:
+                cutoff = float(lattice_method.get("temperature_cutoff_K", float("-inf")))
+                if temp_raw <= cutoff:
+                    actions.append(
+                        {
+                            "method": "lattice",
+                            "x_batch": cand_x[i : i + 1],
+                            "cost": float(lattice_method["cost"]),
+                        }
+                    )
+                    continue
+
+            if md_method is not None:
+                actions.append(
+                    {
+                        "method": "md",
+                        "x_batch": cand_x[i : i + 1],
+                        "cost": float(md_method["cost"]),
+                    }
+                )
+
+        return actions
+
+    def _generate_nested_sampling_actions(
+        self,
+        method: dict,
+        seed: int,
+    ) -> list[dict]:
+        """Generate whole-theta-slice nested sampling actions."""
+        spacing = float(method.get("temperature_spacing_K_nested_sampling", 10.0))
+        n_candidates = int(method["n_candidates"])
+
+        theta_range = self.data_generator.theta_range
+        theta_values_raw = torch.arange(
+            self.data_generator.min_theta,
+            self.data_generator.max_theta + 1,
+            dtype=torch.float32,
+        )
+
+        if n_candidates < len(theta_values_raw):
+            engine = torch.quasirandom.SobolEngine(
+                dimension=1, scramble=True, seed=seed
+            )
+            theta_draws = engine.draw(n_candidates).ravel()
+            theta_idxs = torch.round(theta_draws * theta_range).long()
+            theta_idxs = theta_idxs.clamp(0, theta_range)
+            theta_values_raw = theta_values_raw[theta_idxs]
+
+        temps_raw = torch.arange(
+            float(self.data_generator.min_temp),
+            float(self.data_generator.max_temp) + 0.5 * spacing,
+            spacing,
+            dtype=torch.float32,
+        )
+        temps_raw = temps_raw[temps_raw <= float(self.data_generator.max_temp)]
+
+        actions = []
+        for theta_raw in theta_values_raw:
+            raw_x = torch.stack(
+                [
+                    temps_raw,
+                    torch.full_like(temps_raw, float(theta_raw)),
+                ],
+                dim=-1,
+            )
+            x_batch = self.data_generator.transform_inputs(raw_x)
+
+            actions.append(
+                {
+                    "method": "nested_sampling",
+                    "x_batch": x_batch,
+                    "cost": float(method["cost"]),
+                }
+            )
+
+        return actions
+
+    def _generate_remd_actions(
+        self,
+        method: dict,
+        seed: int,
+    ) -> list[dict]:
+        """Generate REMD temperature-band actions."""
+        n_candidates = int(method["n_candidates"])
+        n_temperatures = int(method.get("n_temperatures_remd", 10))
+        spacing = float(method.get("temperature_spacing_K_remd", 10.0))
+
+        left_x = self._generate_point_candidates(
+            n_candidates=n_candidates,
+            seed=seed,
+        )
+        left_x_raw = self.data_generator.untransform_inputs(left_x)
+
+        actions = []
+        for i in range(left_x_raw.shape[0]):
+            temp0 = float(left_x_raw[i, 0])
+            theta_raw = float(left_x_raw[i, 1])
+            temp_last = temp0 + spacing * (n_temperatures - 1)
+
+            if temp_last > float(self.data_generator.max_temp):
+                continue
+
+            temps_raw = temp0 + spacing * torch.arange(
+                n_temperatures,
+                dtype=torch.float32,
+            )
+            raw_x = torch.stack(
+                [
+                    temps_raw,
+                    torch.full_like(temps_raw, theta_raw),
+                ],
+                dim=-1,
+            )
+            x_batch = self.data_generator.transform_inputs(raw_x)
+            x_batch = self._quantize_theta(x_batch)
+
+            actions.append(
+                {
+                    "method": "remd",
+                    "x_batch": x_batch,
+                    "cost": float(method["cost"]),
+                }
+            )
+
+        return actions
 
     def _init_model(self):
         MeanModuleClass = getattr(means, self.config.mean_module)
@@ -371,14 +577,39 @@ class ActiveLearner:
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
             self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))
+            self.last_sampling_method = "md"
+            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
+            self.last_acquisition_raw_value = float("nan")
+            self.last_acquisition_score = float("nan")
+            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
             return next_x_quantized, next_y_mean, next_y_sigma
         
+        # Random with multiple simulation methods
+        if self.config.acquisition_function == "random_batch":
+            result = self.random_action(self.cand_actions)
+
+            self.last_scores = torch.full((1,), float("nan"))
+            self.last_sampling_method = result["method"]
+            self.last_simulation_cost = float(result["cost"])
+            self.last_acquisition_raw_value = float("nan")
+            self.last_acquisition_score = float("nan")
+            self.last_n_candidates_evaluated = 1
+
+            next_x = result["x_batch"]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
         # Sobol
         if self.config.acquisition_function == "sobol":
             next_x = self._sobol_engine.draw(1)
             next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
             self.last_scores = torch.full((self.cand_x.shape[0],), float("nan"))
+            self.last_sampling_method = "md"
+            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
+            self.last_acquisition_raw_value = float("nan")
+            self.last_acquisition_score = float("nan")
+            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
             return next_x_quantized, next_y_mean, next_y_sigma
 
         # EIG
@@ -388,6 +619,14 @@ class ActiveLearner:
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx : best_idx + 1]
+
+            best_score = scores[best_idx].detach().cpu().item()
+            self.last_sampling_method = "md"
+            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
+            self.last_acquisition_raw_value = float(best_score)
+            self.last_acquisition_score = float(best_score)
+            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
+
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
@@ -398,6 +637,14 @@ class ActiveLearner:
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx : best_idx + 1]
+
+            best_score = scores[best_idx].detach().cpu().item()
+            self.last_sampling_method = "md"
+            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
+            self.last_acquisition_raw_value = float(best_score)
+            self.last_acquisition_score = float(best_score)
+            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
+
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
@@ -408,6 +655,14 @@ class ActiveLearner:
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx : best_idx + 1]
+
+            best_score = scores[best_idx].detach().cpu().item()
+            self.last_sampling_method = "md"
+            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
+            self.last_acquisition_raw_value = float(best_score)
+            self.last_acquisition_score = float(best_score)
+            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
+
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
         
@@ -418,6 +673,30 @@ class ActiveLearner:
             self.last_scores = scores.detach().cpu()
             best_idx = torch.argmax(scores)
             next_x = self.cand_x[best_idx : best_idx + 1]
+
+            best_score = scores[best_idx].detach().cpu().item()
+            self.last_sampling_method = "md"
+            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
+            self.last_acquisition_raw_value = float(best_score)
+            self.last_acquisition_score = float(best_score)
+            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
+
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
+        # Cost-aware peak-cell entropy
+        elif self.config.acquisition_function in {"peak_cell_cost", "peak_cell_batch"}:
+            pcce = PeakCellCostEntropy(self)
+            result = pcce(self.cand_actions)
+
+            self.last_scores = result["scores"].detach().cpu()
+            self.last_sampling_method = result["method"]
+            self.last_simulation_cost = float(result["cost"])
+            self.last_acquisition_raw_value = float(result["raw_value"])
+            self.last_acquisition_score = float(result["score"])
+            self.last_n_candidates_evaluated = int(result["n_candidates_evaluated"])
+
+            next_x = result["x_batch"]
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
@@ -427,8 +706,59 @@ class ActiveLearner:
             )
 
 
+    def random_action(
+        self,
+        cand_actions: list[dict],
+    ) -> dict:
+        """
+        Randomly choose one candidate sampling action.
+        """
+
+        if len(cand_actions) == 0:
+            raise ValueError("No candidate sampling actions were generated.")
+
+        idx = torch.randint(len(cand_actions), (1,)).item()
+        action = cand_actions[idx]
+
+        return {
+            "method": action["method"],
+            "x_batch": action["x_batch"],
+            "cost": float(action["cost"]),
+            "raw_value": float("nan"),
+            "score": float("nan"),
+            "scores": torch.full((1,), float("nan")),
+            "n_candidates_evaluated": 1,
+        }
+
+
     def _uses_value_only_model(self) -> bool:
         return isinstance(self.model, StandardExactGP)
+    
+    def _has_multiple_sampling_methods(self) -> bool:
+        return len(self.config.sampling_methods) > 1
+
+    def _validate_sampling_methods(self):
+        allowed_batch_acqs = {
+            "peak_cell_cost",
+            "peak_cell_batch",
+            "random_batch",
+        }
+
+        if self._has_multiple_sampling_methods():
+            if self.config.acquisition_function not in allowed_batch_acqs:
+                raise ValueError(
+                    "Multiple sampling methods require a batch/action-aware "
+                    "acquisition function: peak_cell_cost, peak_cell_batch, "
+                    "or random_batch."
+                )
+
+        for method in self.config.sampling_methods:
+            if "name" not in method:
+                raise ValueError(f"Sampling method missing name: {method}")
+            if "cost" not in method:
+                raise ValueError(f"Sampling method missing cost: {method}")
+            if "n_candidates" not in method:
+                raise ValueError(f"Sampling method missing n_candidates: {method}")
 
     def _normalize_y(
         self,
@@ -593,6 +923,18 @@ class ActiveLearner:
         log["hyperparameters"] = hyps
         log["wall_clock_time"] = self._ti - self._t0
         log["callback_time_iter"] = self._ti_callbacks - self._ti
+
+        log["sampling_method"] = self.last_sampling_method
+        log["n_points_sampled_iter"] = int(self.next_x.shape[0])
+        log["n_points_sampled_total"] = int(self.n_points_sampled_total)
+        log["simulation_cost_iter"] = float(self.last_simulation_cost)
+        log["simulation_cost_total"] = float(self.simulation_cost_total)
+        log["total_cost_with_acquisition"] = float(
+            self.simulation_cost_total + (self._ti - self._t0)
+        )
+        log["acquisition_raw_value"] = float(self.last_acquisition_raw_value)
+        log["acquisition_score"] = float(self.last_acquisition_score)
+        log["n_candidates_evaluated"] = int(self.last_n_candidates_evaluated)
 
         savepath = Path(self.config.base_savepath) / "logs.json"
         savepath.parent.mkdir(exist_ok=True, parents=True)

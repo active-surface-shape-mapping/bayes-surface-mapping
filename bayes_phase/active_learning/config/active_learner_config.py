@@ -14,6 +14,48 @@ def default_paths() -> list[str]:
         "data/111_Cv_run3.arrow",
     ]
 
+
+def default_sampling_methods() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "md",
+            "cost": 1.0,
+            "n_candidates": 300,
+            "n_temperatures": 1,
+        },
+    ]
+
+
+def full_sampling_methods() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "md",
+            "cost": 1.0,
+            "n_candidates": 100,
+            "n_temperatures": 1,
+        },
+        {
+            "name": "lattice",
+            "cost": 0.25,
+            "n_candidates": 100,
+            "n_temperatures": 1,
+            "temperature_cutoff_K": 150.0,
+        },
+        {
+            "name": "nested_sampling",
+            "cost": 150.0,
+            "n_candidates": 16,
+            "temperature_spacing_K_nested_sampling": 10.0,
+        },
+        {
+            "name": "remd",
+            "cost": 7.0,
+            "n_candidates": 100,
+            "n_temperatures_remd": 10,
+            "temperature_spacing_K_remd": 10.0,
+        },
+    ]
+
 def default_diagram_generator_kwargs() -> dict[str, Any]:
     return {
         "peak_threshold": None,
@@ -61,9 +103,9 @@ class InitDataStrategy(StrEnum):
 
 
 class CandDataStrategy(StrEnum):
+    RANDOM = "random"
     SOBOL = "sobol"
     MARGINAL_SOBOL = "marginal_sobol"
-    MARGINAL_POISSON_DISK = "marginal_poisson_disk"
 
 
 class MeanModule(StrEnum):
@@ -87,6 +129,9 @@ class AcquisitionFunction(StrEnum):
     SOBOL = "sobol"
     HULL = "hull_variance"
     CELL = "peak_cell"
+    CELL_COST = "peak_cell_cost"
+    CELL_BATCH = "peak_cell_batch"
+    RANDOM_BATCH = "random_batch"
 
 
 class DiagramGenerator(StrEnum):
@@ -132,6 +177,9 @@ class ActiveLearnerConfig:
     ground_truth_dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
+    sampling_methods: list[dict[str, Any]] = field(
+        default_factory=default_sampling_methods
+    )
     mean_module: MeanModule = MeanModule.CONSTANT
     mean_module_kwargs: dict[str, Any] = field(default_factory=dict)
     base_kernel: BaseKernel = BaseKernel.MATERN52

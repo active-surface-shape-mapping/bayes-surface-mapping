@@ -78,8 +78,9 @@ def plot3d(learner: "ActiveLearner"):
     z_all = learner.train_y_orig.detach().reshape(-1)
     # points sampled during AL
     # Only points sampled during AL, excluding the most recent point (plotted separately in orange)
-    xs = xs_all[n_init:-1]
-    z_samp = z_all[n_init:-1]
+    n_new = int(learner.next_x.shape[0])
+    xs = xs_all[n_init:-n_new]
+    z_samp = z_all[n_init:-n_new]
     new_x_u = learner.next_x.detach()  # (1,2) in unit space
     new_xs = learner.data_generator.untransform_inputs(
         new_x_u
