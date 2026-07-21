@@ -89,6 +89,7 @@ def _plot_mst_diagrams(
                 marker="x",
                 s=40,
                 color=c,
+                zorder=8,
             )
             continue
 
