@@ -158,14 +158,6 @@ class PeakHeightRule(StrEnum):
     NONE = "none"
     ABOVE_MEDIAN = "above_median"
 
-class DistanceMetric(StrEnum):
-    CHAMFER = "chamfer"
-    # HAUSDORFF = "hausdorff"
-    # WASSERSTEIN = "wasserstein"
-
-class DispersionMetric(StrEnum):
-    PAIRWISE = "pairwise"
-
 
 @dataclass
 class ActiveLearnerConfig:
@@ -223,7 +215,3 @@ class ActiveLearnerConfig:
     )
     only_use_peaks: bool = False
     addon_data_noise_std: float = 0.0 # If noise is being added to observations: standard deviation of the noise.
-    distance_metric: DistanceMetric = DistanceMetric.CHAMFER
-    distance_metric_kwargs: dict[str, Any] = field(default_factory=dict)
-    dispersion_metric: DispersionMetric = DispersionMetric.PAIRWISE
-    dispersion_metric_kwargs: dict[str, Any] = field(default_factory=dict)
