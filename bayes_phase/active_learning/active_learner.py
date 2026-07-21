@@ -3,12 +3,13 @@ import torch
 import gpytorch
 from typing import Callable
 from botorch.fit import fit_gpytorch_mll
-import scipy.stats as sps
 from tqdm import tqdm
 from time import time
 from pathlib import Path
 from jsonlines import jsonlines
 import warnings
+import cProfile
+import pstats
 
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
@@ -41,6 +42,7 @@ class ActiveLearner:
         self.ground_truth_data_generator = self._init_dataset(
             self.config.ground_truth_dataset_paths
         )
+        self._validate_sampling_methods()
         self._sobol_engine = torch.quasirandom.SobolEngine(
             dimension=2,
             scramble=True,
@@ -60,7 +62,6 @@ class ActiveLearner:
         self.last_acquisition_score = float("nan")
         self.last_n_candidates_evaluated = 0
 
-        self._validate_sampling_methods()
         self._i = 0
 
     def optimize(self):
@@ -70,8 +71,9 @@ class ActiveLearner:
             # Fit surrogate model:
             self._fit_model()
             # New candidate points:
-            cand_seed = self.config.init_seed + 1 + i
-            self.cand_x, self.cand_actions = self._generate_candidates(seed=cand_seed)
+            self._candidate_seed=self.config.init_seed + 1 + i
+            
+            self.cand_x, self.cand_actions = self._generate_candidates(seed=self._candidate_seed)
             # Acquire points:
             self.next_x, self.next_y_orig, self.next_y_sigma = self._acquire()
 
@@ -202,6 +204,61 @@ class ActiveLearner:
                 data_generator=self.init_data_generator,
             )
             return init_x, init_y_mean, init_y_sigma
+        
+        elif self.config.init_data_strategy == "ns_slice":
+
+            # Find the NS configuration.
+            ns_methods = [
+                method
+                for method in self.config.sampling_methods
+                if method["name"] == "nested_sampling"
+            ]
+
+            # Make sure NS configuration is specified only once.
+            if len(ns_methods) != 1:
+                raise ValueError(
+                    "init_data_strategy='ns_slice' requires exactly one "
+                    "nested_sampling entry in sampling_methods."
+                )
+
+            ns_method = ns_methods[0]
+
+            spacing_K = float(
+                ns_method.get(
+                    "temperature_spacing_K_nested_sampling",
+                    10.0,
+                )
+            )
+
+            # Seeded slice selecion.
+            generator = torch.Generator()
+            generator.manual_seed(self.config.init_seed)
+
+            min_theta = int(self.data_generator.min_theta)
+            max_theta = int(self.data_generator.max_theta)
+            n_theta_values = max_theta - min_theta + 1
+
+            theta_offset = torch.randint(
+                low=0,
+                high=n_theta_values,
+                size=(1,),
+                generator=generator,
+            ).item()
+
+            theta_raw = min_theta + theta_offset
+
+            init_x = self._build_nested_sampling_slice(
+                theta_raw=float(theta_raw),
+                spacing_K=spacing_K,
+            )
+
+            init_y_mean, init_y_sigma = self._observe(
+                init_x,
+                data_generator=self.init_data_generator,
+            )
+
+            return init_x, init_y_mean, init_y_sigma
+        
         elif self.config.init_data_strategy == "random":
             init_x = torch.rand(self.config.init_n_points, 2)
 
@@ -220,32 +277,32 @@ class ActiveLearner:
 
     def _generate_candidates(
         self,
-        seed,
+        seed: int,
     ) -> tuple[Float[torch.Tensor, "n 2"], list[dict]]:
-        """Initialize candidate acquisition points.
-
-        Returns
-        -------
-        candidate_points, candidate_actions
-            Candidate point locations for legacy acquisitions, and candidate
-            sampling actions for batch/cost-aware acquisitions.
-        """
-        cand_x = self._generate_point_candidates(
-            n_candidates=self.config.iter_n_candidates,
-            seed=seed,
-        )
+        """Generate point candidates or action candidates."""
 
         batch_acqs = {
             "peak_cell_cost",
             "peak_cell_batch",
             "random_batch",
+            "random_slice",
         }
 
-        if self.config.acquisition_function not in batch_acqs:
-            return cand_x, []
+        if self.config.acquisition_function in batch_acqs:
+            cand_actions = self._generate_sampling_actions(seed=seed)
+            cand_x = torch.empty((0, 2))
+            if len(cand_actions) == 0:
+                raise RuntimeError(
+                    "No sampling actions remain. All configured nested-sampling "
+                    "slices may already be present in the training data."
+                )
+            return cand_x, cand_actions
 
-        cand_actions = self._generate_sampling_actions(seed=seed)
-        return cand_x, cand_actions
+        cand_x = self._generate_point_candidates(
+            n_candidates=self.config.iter_n_candidates,
+            seed=seed,
+        )
+        return cand_x, []
 
     def _generate_point_candidates(
         self,
@@ -392,54 +449,125 @@ class ActiveLearner:
         method: dict,
         seed: int,
     ) -> list[dict]:
-        """Generate whole-theta-slice nested sampling actions."""
-        spacing = float(method.get("temperature_spacing_K_nested_sampling", 10.0))
-        n_candidates = int(method["n_candidates"])
+        """Generate candidate actions for NS slices not already fully sampled."""
+        # seed is intentionally unused because NS candidates are exhaustive.
 
-        theta_range = self.data_generator.theta_range
-        theta_values_raw = torch.arange(
-            self.data_generator.min_theta,
-            self.data_generator.max_theta + 1,
-            dtype=torch.float32,
-        )
-
-        if n_candidates < len(theta_values_raw):
-            engine = torch.quasirandom.SobolEngine(
-                dimension=1, scramble=True, seed=seed
+        spacing_K = float(
+            method.get(
+                "temperature_spacing_K_nested_sampling",
+                10.0,
             )
-            theta_draws = engine.draw(n_candidates).ravel()
-            theta_idxs = torch.round(theta_draws * theta_range).long()
-            theta_idxs = theta_idxs.clamp(0, theta_range)
-            theta_values_raw = theta_values_raw[theta_idxs]
+        )
 
-        temps_raw = torch.arange(
-            float(self.data_generator.min_temp),
-            float(self.data_generator.max_temp) + 0.5 * spacing,
-            spacing,
+        theta_values_raw = torch.arange(
+            int(self.data_generator.min_theta),
+            int(self.data_generator.max_theta) + 1,
             dtype=torch.float32,
         )
-        temps_raw = temps_raw[temps_raw <= float(self.data_generator.max_temp)]
 
         actions = []
+
         for theta_raw in theta_values_raw:
-            raw_x = torch.stack(
-                [
-                    temps_raw,
-                    torch.full_like(temps_raw, float(theta_raw)),
-                ],
-                dim=-1,
+            x_batch = self._build_nested_sampling_slice(
+                theta_raw=float(theta_raw),
+                spacing_K=spacing_K,
             )
-            x_batch = self.data_generator.transform_inputs(raw_x)
+
+            if self._batch_is_already_in_training_data(x_batch):
+                continue
 
             actions.append(
                 {
                     "method": "nested_sampling",
                     "x_batch": x_batch,
                     "cost": float(method["cost"]),
+                    "theta_raw": float(theta_raw),
                 }
             )
 
+        remaining_thetas = [
+            action["theta_raw"]
+            for action in actions
+        ]
+
+        print(
+            f"Iteration {self._i}: "
+            f"{len(actions)} NS actions remain: "
+            f"{remaining_thetas}"
+        )
+
         return actions
+    
+
+    def _batch_is_already_in_training_data(
+        self,
+        x_batch: Float[torch.Tensor, "n_batch 2"],
+        *,
+        atol: float = 1e-6,
+    ) -> bool:
+        """
+        Return True if every point in x_batch already appears in train_x.
+
+        Matching is performed in normalized input coordinates using a small
+        absolute tolerance to accommodate floating-point transformations.
+        """
+        if self.train_x.numel() == 0:
+            return False
+
+        train_x = self.train_x.to(
+            device=x_batch.device,
+            dtype=x_batch.dtype,
+        )
+
+        # Shape: n_train x n_batch x 2
+        coordinate_matches = torch.isclose(
+            train_x[:, None, :],
+            x_batch[None, :, :],
+            atol=atol,
+            rtol=0.0,
+        )
+
+        # A row matches only when both temperature and theta match.
+        # Shape: n_train x n_batch
+        row_matches = coordinate_matches.all(dim=-1)
+
+        # Each proposed point must match at least one training point.
+        # Shape: n_batch
+        candidate_points_present = row_matches.any(dim=0)
+
+        return bool(candidate_points_present.all().item())
+
+    def _build_nested_sampling_slice(
+        self,
+        theta_raw: float, # Theta in raw coordinates
+        spacing_K: float, # temp spacing in K
+    ) -> Float[torch.Tensor, "n_temperatures 2"]:
+        """Build one complete nested-sampling slice in normalized coordinates."""
+
+        # Tensor of temperatures for the slice.
+        temps_raw = torch.arange(
+            float(self.data_generator.min_temp),
+            float(self.data_generator.max_temp) + 0.5 * spacing_K,
+            spacing_K,
+            dtype=torch.float32,
+        )
+
+        # Check against max temp.
+        temps_raw = temps_raw[
+            temps_raw <= float(self.data_generator.max_temp)
+        ]
+
+        # Stack.
+        raw_x = torch.stack(
+            [
+                temps_raw,
+                torch.full_like(temps_raw, theta_raw),
+            ],
+            dim=-1,
+        )
+
+        # Return in transformed coordinates.
+        return self.data_generator.transform_inputs(raw_x)
 
     def _generate_remd_actions(
         self,
@@ -584,16 +712,42 @@ class ActiveLearner:
             self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
             return next_x_quantized, next_y_mean, next_y_sigma
         
-        # Random with multiple simulation methods
+        # Random action with multiple simulation methods
         if self.config.acquisition_function == "random_batch":
-            result = self.random_action(self.cand_actions)
+            result = self.random_action(
+                self.cand_actions,
+                seed=self._candidate_seed,
+            )
 
-            self.last_scores = torch.full((1,), float("nan"))
+            self.last_scores = result["scores"]
             self.last_sampling_method = result["method"]
             self.last_simulation_cost = float(result["cost"])
             self.last_acquisition_raw_value = float("nan")
             self.last_acquisition_score = float("nan")
-            self.last_n_candidates_evaluated = 1
+            self.last_n_candidates_evaluated = int(
+                result["n_candidates_evaluated"]
+            )
+
+            next_x = result["x_batch"]
+            next_y_mean, next_y_sigma = self._observe(next_x)
+            return next_x, next_y_mean, next_y_sigma
+
+        # Random whole nested-sampling slice
+        if self.config.acquisition_function == "random_slice":
+            result = self.random_action(
+                self.cand_actions,
+                seed=self._candidate_seed,
+                method_name="nested_sampling",
+            )
+
+            self.last_scores = result["scores"]
+            self.last_sampling_method = result["method"]
+            self.last_simulation_cost = float(result["cost"])
+            self.last_acquisition_raw_value = float("nan")
+            self.last_acquisition_score = float("nan")
+            self.last_n_candidates_evaluated = int(
+                result["n_candidates_evaluated"]
+            )
 
             next_x = result["x_batch"]
             next_y_mean, next_y_sigma = self._observe(next_x)
@@ -687,8 +841,15 @@ class ActiveLearner:
         # Cost-aware peak-cell entropy
         elif self.config.acquisition_function in {"peak_cell_cost", "peak_cell_batch"}:
             pcce = PeakCellCostEntropy(self)
-            result = pcce(self.cand_actions)
-
+            if self._i == 0:
+                prof = cProfile.Profile()
+                prof.enable()
+                result = pcce(self.cand_actions)
+                prof.disable()
+                pstats.Stats(prof).sort_stats("cumtime").print_stats(30)
+            else:
+                result = pcce(self.cand_actions)
+                
             self.last_scores = result["scores"].detach().cpu()
             self.last_sampling_method = result["method"]
             self.last_simulation_cost = float(result["cost"])
@@ -709,16 +870,65 @@ class ActiveLearner:
     def random_action(
         self,
         cand_actions: list[dict],
+        seed: int,
+        method_name: str | None = None,
     ) -> dict:
         """
-        Randomly choose one candidate sampling action.
+        Select a sampling method uniformly, then select one of that
+        method's candidate actions uniformly.
         """
 
-        if len(cand_actions) == 0:
-            raise ValueError("No candidate sampling actions were generated.")
+        if method_name is not None:
+            eligible_actions = [
+                action
+                for action in cand_actions
+                if action["method"] == method_name
+            ]
+        else:
+            eligible_actions = cand_actions
 
-        idx = torch.randint(len(cand_actions), (1,)).item()
-        action = cand_actions[idx]
+        if len(eligible_actions) == 0:
+            if method_name is None:
+                raise ValueError(
+                    "No candidate sampling actions were generated."
+                )
+
+            raise ValueError(
+                f"No candidate sampling actions were generated for "
+                f"method {method_name!r}."
+            )
+
+        actions_by_method: dict[str, list[dict]] = {}
+
+        for action in eligible_actions:
+            actions_by_method.setdefault(
+                action["method"],
+                [],
+            ).append(action)
+
+        method_names = sorted(actions_by_method)
+
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+
+        method_idx = torch.randint(
+            low=0,
+            high=len(method_names),
+            size=(1,),
+            generator=generator,
+        ).item()
+
+        selected_method = method_names[method_idx]
+        method_actions = actions_by_method[selected_method]
+
+        action_idx = torch.randint(
+            low=0,
+            high=len(method_actions),
+            size=(1,),
+            generator=generator,
+        ).item()
+
+        action = method_actions[action_idx]
 
         return {
             "method": action["method"],
@@ -727,7 +937,7 @@ class ActiveLearner:
             "raw_value": float("nan"),
             "score": float("nan"),
             "scores": torch.full((1,), float("nan")),
-            "n_candidates_evaluated": 1,
+            "n_candidates_evaluated": len(eligible_actions),
         }
 
 
@@ -742,6 +952,7 @@ class ActiveLearner:
             "peak_cell_cost",
             "peak_cell_batch",
             "random_batch",
+            "random_slice",
         }
 
         if self._has_multiple_sampling_methods():
@@ -749,7 +960,7 @@ class ActiveLearner:
                 raise ValueError(
                     "Multiple sampling methods require a batch/action-aware "
                     "acquisition function: peak_cell_cost, peak_cell_batch, "
-                    "or random_batch."
+                    "random_batch, or random_slice."
                 )
 
         for method in self.config.sampling_methods:
@@ -757,8 +968,13 @@ class ActiveLearner:
                 raise ValueError(f"Sampling method missing name: {method}")
             if "cost" not in method:
                 raise ValueError(f"Sampling method missing cost: {method}")
-            if "n_candidates" not in method:
-                raise ValueError(f"Sampling method missing n_candidates: {method}")
+            if (
+                method["name"] != "nested_sampling"
+                and "n_candidates" not in method
+            ):
+                raise ValueError(
+                    f"Sampling method missing n_candidates: {method}"
+                )
 
     def _normalize_y(
         self,

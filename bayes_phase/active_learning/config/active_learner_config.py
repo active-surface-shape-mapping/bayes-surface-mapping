@@ -43,9 +43,8 @@ def full_sampling_methods() -> list[dict[str, Any]]:
         },
         {
             "name": "nested_sampling",
-            "cost": 150.0,
-            "n_candidates": 16,
-            "temperature_spacing_K_nested_sampling": 10.0,
+            "cost": 1000.0,
+            "temperature_spacing_K_nested_sampling": 25.0,
         },
         {
             "name": "remd",
@@ -61,6 +60,8 @@ def default_diagram_generator_kwargs() -> dict[str, Any]:
         "peak_threshold": None,
         "max_n_peaks": None,
         "peak_height_rule": None,
+        "n_temp_grid": 100,
+        "jitter": 1e-12,
     }
 
 # Limit visual connections in phase diagram plots
@@ -100,6 +101,7 @@ class InitDataStrategy(StrEnum):
     MARGINAL_SOBOL = "marginal_sobol"
     GRID = "grid"
     SLICE_ENDS = "slice_ends"
+    NS_SLICE = "ns_slice"
 
 
 class CandDataStrategy(StrEnum):
@@ -132,6 +134,7 @@ class AcquisitionFunction(StrEnum):
     CELL_COST = "peak_cell_cost"
     CELL_BATCH = "peak_cell_batch"
     RANDOM_BATCH = "random_batch"
+    RANDOM_SLICE = "random_slice"
 
 
 class DiagramGenerator(StrEnum):
@@ -154,6 +157,14 @@ class MIConditioningStrategy(StrEnum):
 class PeakHeightRule(StrEnum):
     NONE = "none"
     ABOVE_MEDIAN = "above_median"
+
+class DistanceMetric(StrEnum):
+    CHAMFER = "chamfer"
+    # HAUSDORFF = "hausdorff"
+    # WASSERSTEIN = "wasserstein"
+
+class DispersionMetric(StrEnum):
+    PAIRWISE = "pairwise"
 
 
 @dataclass
@@ -212,3 +223,7 @@ class ActiveLearnerConfig:
     )
     only_use_peaks: bool = False
     addon_data_noise_std: float = 0.0 # If noise is being added to observations: standard deviation of the noise.
+    distance_metric: DistanceMetric = DistanceMetric.CHAMFER
+    distance_metric_kwargs: dict[str, Any] = field(default_factory=dict)
+    dispersion_metric: DispersionMetric = DispersionMetric.PAIRWISE
+    dispersion_metric_kwargs: dict[str, Any] = field(default_factory=dict)

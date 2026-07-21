@@ -47,7 +47,7 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self.learner = learner
         self.n_theta_grid = learner.data_generator.theta_range + 1
         self.n_temp_grid = n_temp_grid
-        self.temp_grid = torch.linspace(0.0, 1.0, n_temp_grid, dtype=torch.double)
+        self.temp_grid = torch.linspace(0.0, 1.0, self.n_temp_grid, dtype=torch.double)
         self.theta_grid = torch.arange(0, self.n_theta_grid) / (self.n_theta_grid - 1)
         X, Y = torch.meshgrid(self.temp_grid, self.theta_grid, indexing="ij")
         self.points = torch.stack([X.ravel(), Y.ravel()]).T
@@ -60,12 +60,20 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
     def _update(self):
         """Update the posterior latent distribution over grid points."""
         self._count = 0
+
         with eval_context(self.learner.model):
             self.pred = self.learner.model(self.points)
+
+        covariance = self.pred.covariance_matrix
+        identity = torch.eye(
+            covariance.shape[-1],
+            dtype=covariance.dtype,
+            device=covariance.device,
+        )
+
         self.distribution = torch.distributions.MultivariateNormal(
             self.pred.mean,
-            self.pred.covariance_matrix
-            + self.jitter * torch.eye(self.pred.mean.numel()),
+            covariance + self.jitter * identity,
         )
 
     def generate_diagram(
