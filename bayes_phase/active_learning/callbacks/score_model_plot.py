@@ -410,7 +410,7 @@ def score_model_plot(learner: "ActiveLearner"):
     eval_grid = torch.stack([x.ravel(), y.ravel()]).T
 
     # Ground-truth field on dense grid
-    y_gt = learner.data_generator.measure_uniform(eval_grid)
+    y_gt = learner.ground_truth_data_generator.measure_uniform(eval_grid)
     y_gt_mean = y_gt.mean(-1)
     if learner.config.use_log_transform:
         y_gt_mean = y_gt_mean.log()
@@ -425,11 +425,10 @@ def score_model_plot(learner: "ActiveLearner"):
 
     # Get ground-truth diagram, determine true scoring boxes
     gt_diagrams = learner.diagram_generator.diagrams(
-        1, data_generator=learner.data_generator
+        1, data_generator=learner.ground_truth_data_generator
     )
     gt_item = gt_diagrams[0]
     gt_ridge_x = gt_item.peaks
-    gt_sample = gt_item.sample
 
     true_hits = _assign_ridge_points_to_grid(
         learner=learner,
@@ -568,9 +567,11 @@ def score_model_plot(learner: "ActiveLearner"):
         true_hits=true_hits,
     )
 
+    n_plot_diagrams = min(8, len(posterior_diagrams))
+
     _plot_mst_diagrams_with_grid(
         learner=learner,
-        diagrams=iter(posterior_diagrams),
+        diagrams=iter(posterior_diagrams[:n_plot_diagrams]),
         ax=ax[0, 1],
         color=None,
         grid=scoring_grid,

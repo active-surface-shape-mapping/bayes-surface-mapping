@@ -17,7 +17,7 @@ def default_paths() -> list[str]:
 def default_diagram_generator_kwargs() -> dict[str, Any]:
     return {
         "peak_threshold": None,
-        "max_n_peaks": 3,
+        "max_n_peaks": None,
         "peak_height_rule": None,
     }
 
@@ -84,6 +84,7 @@ class AcquisitionFunction(StrEnum):
     RANDOM = "random"
     EIG = "eig"
     MI = "mutual_information"
+    SOBOL = "sobol"
     HULL = "hull_variance"
     CELL = "peak_cell"
 
@@ -119,13 +120,16 @@ class ActiveLearnerConfig:
     iter_n_candidates: int = 300  # number of candidate points per iteration
     n_scoring_samples: int = 50 # number of samples to use for scoring at each iteration
     scoring_grid_T_range: int = 50 # size of scoring box along the T axis, in K
-    max_tree_conn_dist: float = 0.175 # max proportion of the space across which a spanning tree phase diagram connection will be made for plotting
+    connect_the_dots: bool = False
+    max_tree_conn_dist: float = 0.175 # max proportion of the space across which a spanning tree phase diagram connection will be made for plotting. Only used when connect_the_dots=True.
     tree_graph_type: TreeGraphType = TreeGraphType.CURVE # Type of visuals for tree graphs produced by plot_mst
-    show_points_tree_graphs: bool = True # Show scatter of ridge points or not in plots produced by plot_mst
+    show_points_tree_graphs: bool = True # Show scatter of ridge points or not in plots produced by plot_mst. Only used when connect_the_dots=True.
     forbidden_tree_regions: list[dict[str, int | float]] = field(
         default_factory=default_forbidden_tree_regions
     )
-    dataset_paths: list[str] = field(default_factory=default_paths)
+    init_dataset_paths: list[str] = field(default_factory=default_paths)
+    sampling_dataset_paths: list[str] = field(default_factory=default_paths)
+    ground_truth_dataset_paths: list[str] = field(default_factory=default_paths)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
     mean_module: MeanModule = MeanModule.CONSTANT
