@@ -15,6 +15,10 @@ class BayesODataGenerator(BaseDataGenerator):
     def __init__(
         self,
         target_name: str,
+        target_scale: float = 1.0,
+        target_shift: float = 0.0,
+        n_replicates: int = 3,
+        noise: float = 0.0,
         min_temp: float = 10.0,
         max_temp: float = 2009.0,
         min_theta: int = 1,
@@ -31,6 +35,10 @@ class BayesODataGenerator(BaseDataGenerator):
             simulation, with columns "temp_in_K" containing the temperature
             index, and "θ_1" to "θ_k" containing the corresponding energy.
         """
+        self.target_scale = target_scale
+        self.target_shift = target_shift
+        self.n_replicates = n_replicates
+        self.noise = noise
         if min_temp is None:
             min_temp = 10.0
         if max_temp is None:
@@ -51,7 +59,7 @@ class BayesODataGenerator(BaseDataGenerator):
 
     # TODO: Implement self.measure for vectorized computation.
 
-    def transform_inputs(
+    def transform_inputs_to_target_coords(
         self,
         x: torch.Tensor,
     ) -> torch.Tensor:
@@ -68,7 +76,7 @@ class BayesODataGenerator(BaseDataGenerator):
             The corresponding points in the target coordinates,
             after affine transformation.
         """
-        u = super().transform_inputs(x)
+        u = self.transform_inputs(x)
         bounds = self.target.get_bounds()
         lb = bounds[:, 0]
         ub = bounds[:, 1]
@@ -79,7 +87,7 @@ class BayesODataGenerator(BaseDataGenerator):
         z_theta = u[:, 1] * range_[1] + lb[1]
         return torch.vstack([z_temp, z_theta]).T
 
-    def untransform_inputs(
+    def untransform_inputs_from_target_coords(
         self,
         z: torch.Tensor,
     ) -> torch.Tensor:
@@ -105,7 +113,7 @@ class BayesODataGenerator(BaseDataGenerator):
         u_temp = (z[:, 0] - lb[0]) / range_[0]
         u_theta = (z[:, 1] - lb[1]) / range_[1]
         u = torch.vstack([u_temp, u_theta]).T
-        return super().untransform_inputs(u)
+        return self.untransform_inputs(u)
 
     def measure_single(
         self,
@@ -125,11 +133,12 @@ class BayesODataGenerator(BaseDataGenerator):
 
         """
         x = torch.tensor([[temperature, theta]])
-        assert x.shape == (1, 2)
-        u = self.transform_inputs(x)
-        y = self.target(u.detach().cpu().numpy())
-        assert y.shape[0] == 1
-        return torch.tensor(y[0, :])
+        x = x.tile((self.n_replicates, 1))
+        assert x.shape == (self.n_replicates, 2), x.shape
+        z = self.transform_inputs_to_target_coords(x)
+        y = self.target(z.detach().cpu().numpy())
+        assert y.shape[1] == 1, y.shape
+        return torch.tensor(y[:, 0]) * self.target_scale + self.target_shift
 
     @property
     def min_temp(self) -> float:

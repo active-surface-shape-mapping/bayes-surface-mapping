@@ -1,7 +1,6 @@
 from typing import Any, Optional
 from pathlib import Path
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import StrEnum
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
@@ -110,6 +109,9 @@ class PeakHeightRule(StrEnum):
     NONE = "none"
     ABOVE_MEDIAN = "above_median"
 
+class DatasetType(StrEnum):
+    SIMULATED = "simulated"
+    SYNTHETIC = "synthetic"
 
 @dataclass
 class ActiveLearnerConfig:
@@ -127,9 +129,22 @@ class ActiveLearnerConfig:
     forbidden_tree_regions: list[dict[str, int | float]] = field(
         default_factory=default_forbidden_tree_regions
     )
+    dataset_type: DatasetType = DatasetType.SIMULATED
+    # For simulated data:
     init_dataset_paths: list[str] = field(default_factory=default_paths)
     sampling_dataset_paths: list[str] = field(default_factory=default_paths)
     ground_truth_dataset_paths: list[str] = field(default_factory=default_paths)
+    # For synthetic data (BayesO Benchmark functions):
+    target_name: Optional[str] = "Branin"
+    target_scale: float = 1.0
+    target_shift: float = 0.0
+    target_sampling_n_replicates: int = 3
+    target_sampling_noise: float = 0.0
+    target_init_n_replicates: int = 3
+    target_init_noise: float = 0.0
+    target_ground_truth_n_replicates: int = 3
+    target_ground_truth_noise: float = 0.0
+    target_kwargs: dict = field(default_factory=dict)
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL
     mean_module: MeanModule = MeanModule.CONSTANT
