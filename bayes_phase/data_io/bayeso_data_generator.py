@@ -19,6 +19,7 @@ class BayesODataGenerator(BaseDataGenerator):
         target_shift: float = 0.0,
         n_replicates: int = 3,
         noise: float = 0.0,
+        noise_type: Literal["normal", "lognormal"] = "lognormal",
         min_temp: float = 10.0,
         max_temp: float = 2009.0,
         min_theta: int = 1,
@@ -39,6 +40,7 @@ class BayesODataGenerator(BaseDataGenerator):
         self.target_shift = target_shift
         self.n_replicates = n_replicates
         self.noise = noise
+        self.noise_type = noise_type
         if min_temp is None:
             min_temp = 10.0
         if max_temp is None:
@@ -137,8 +139,16 @@ class BayesODataGenerator(BaseDataGenerator):
         assert x.shape == (self.n_replicates, 2), x.shape
         z = self.transform_inputs_to_target_coords(x)
         y = self.target(z.detach().cpu().numpy())
+        assert y.shape[0] == self.n_replicates, y.shape
         assert y.shape[1] == 1, y.shape
-        return torch.tensor(y[:, 0]) * self.target_scale + self.target_shift
+        noise = torch.randn(y.shape[0]) * self.noise
+        if self.noise_type == "normal":
+            result = torch.tensor(y[:, 0]) * self.target_scale + self.target_shift + noise
+        elif self.noise_type == "lognormal":
+            result = (torch.tensor(y[:, 0]) * self.target_scale + self.target_shift) * noise.exp()
+        else:
+            raise ValueError(f"Unrecognized noise type {self.noise_type}")
+        return result
 
     @property
     def min_temp(self) -> float:
