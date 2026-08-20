@@ -1,7 +1,6 @@
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Optional
 
 
 
