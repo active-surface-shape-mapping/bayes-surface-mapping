@@ -1,11 +1,11 @@
-from typing import Any, Optional
+from typing import Any
 
 import gpytorch
 
 
 def make_prior(
-    config: Optional[dict[str, Any]],
-) -> Optional[gpytorch.priors.Prior]:
+    config: dict[str, Any] | None,
+) -> gpytorch.priors.Prior | None:
     if config is None:
         return None
 
