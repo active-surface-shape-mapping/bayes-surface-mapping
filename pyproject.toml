@@ -1,7 +1,7 @@
 [project]
 name = "bayes-phase"
 version = "0.1.0"
-description = "Add your description here"
+description = "dependencies for bayes-phase"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -41,5 +41,33 @@ dev = [
 packages = ["bayes_phase"]
 
 [tool.ruff.lint]
-# Skip linting error from jaxtyping
-extend-ignore = ["F722"]
+extend-select = [
+    "B", # Likely bugs
+    "RUF", # Ruff-specific, like iterable unpacking
+]
+# Skip a few linting errors
+extend-ignore = [
+    "F722",  # Jaxtyping annotations
+    "B028",  # warnings.warn stacklevel
+    "B905",  # zip(strict=...)
+]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+
+# Keep some interface/type errors visible.
+reportMissingTypeArgument = "error"
+reportMissingParameterType = "warning"
+
+# Reduce noise from partially typed scientific libraries and gradual typing.
+reportExplicitAny = false
+reportAny = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownParameterType = false
+
+# A couple more unnecessary warnings
+reportMissingTypeStubs = false
+reportImplicitStringConcatenation = false
