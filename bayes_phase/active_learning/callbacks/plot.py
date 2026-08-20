@@ -65,7 +65,7 @@ def plot(learner: "ActiveLearner"):
         origin="lower",
     )
     savepath = (
-        Path(learner.config.base_savepath) / "plots" / f"iteration_{learner._i}.png"
+        Path(learner.config.base_savepath) / "plots" / f"iteration_{learner._i}.pdf"
     )
     ax[0, 1].set_aspect("auto")
     xs = learner.data_generator.untransform_inputs(learner.train_x.detach())

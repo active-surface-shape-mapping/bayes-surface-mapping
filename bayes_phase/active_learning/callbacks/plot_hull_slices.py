@@ -296,6 +296,6 @@ def plot_hull_slices(
 
     plt.tight_layout()
 
-    plain_savepath = out_dir / f"iteration_{learner._i:03d}_plain.png"
+    plain_savepath = out_dir / f"iteration_{learner._i:03d}_plain.pdf"
     plt.savefig(plain_savepath, dpi=120)
     plt.close()
