@@ -174,7 +174,7 @@ class ActiveLearnerConfig:
     sampling_methods: list[dict[str, Any]] = field(
         default_factory=default_sampling_methods
     )
-    mean_module: MeanModule = MeanModule.CONSTANT
+    mean_module: MeanModule = MeanModule.QUADRATIC
     mean_module_kwargs: dict[str, Any] = field(default_factory=dict)
     base_kernel: BaseKernel = BaseKernel.MATERN52
     base_kernel_kwargs: dict[str, Any] = field(default_factory=dict)
