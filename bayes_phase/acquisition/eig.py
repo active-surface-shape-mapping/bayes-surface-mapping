@@ -1,7 +1,7 @@
-import math
+from typing import TYPE_CHECKING
+
 import torch
 from jaxtyping import Float
-from typing import TYPE_CHECKING
 
 from bayes_phase.utils import eval_context
 
@@ -43,7 +43,6 @@ class EIG:
             device=var_f.device,
         ).reshape(-1)
 
-        # Usually scalar, but this keeps things safe if noise is shaped.
         if noise_var.numel() == 1:
             noise_var = noise_var.expand_as(var_f)
 
