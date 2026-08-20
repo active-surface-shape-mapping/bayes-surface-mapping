@@ -1,0 +1,8 @@
+defaults:
+  - disp_base
+distance_metric: GOSPA
+dispersion_metric: RAND_PAIR
+distance_metric_kwargs:
+  cutoff: 0.2
+  p: 1
+  alpha: 2
