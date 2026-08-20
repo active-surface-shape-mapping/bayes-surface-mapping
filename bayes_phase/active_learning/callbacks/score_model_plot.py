@@ -1,17 +1,17 @@
-import torch
-import networkx as nx
+import json
+import warnings
+from collections.abc import Iterator
+from pathlib import Path
+
+import geopandas as gpd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
-from matplotlib.ticker import MaxNLocator
-from pathlib import Path
-from typing import Iterator, Optional
 import numpy as np
 import pandas as pd
-import warnings
-
 import shapely as shp
-import geopandas as gpd
+import torch
+from matplotlib.axes import Axes
+from matplotlib.ticker import MaxNLocator
 
 from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
     DiagramOutput,
@@ -25,18 +25,18 @@ def _plot_mst_diagrams_with_grid(
     learner: "ActiveLearner",
     diagrams: Iterator[DiagramOutput],
     ax: Axes,
-    color: Optional[str] = None,
-    grid: Optional[gpd.GeoDataFrame] = None,
-    true_hits: Optional[gpd.GeoDataFrame] = None,
+    color: str | None = None,
+    grid: gpd.GeoDataFrame | None = None,
+    true_hits: gpd.GeoDataFrame | None = None,
 ):
     """Create side-by-side plots of GT phase diagram and sampled phase diagrams."""
     if grid is None:
         grid = _generate_grid(learner)
 
-    grid.boundary.plot(ax=ax, color="black", linewidth=0.4, zorder=3, aspect=None)
+    grid.boundary.plot(ax=ax, color="black", linewidth=0.4, zorder=6, aspect=None)
 
     if true_hits is not None and len(true_hits) > 0:
-        true_hits.boundary.plot(ax=ax, color="red", linewidth=1.2, zorder=5, aspect=None)
+        true_hits.boundary.plot(ax=ax, color="red", linewidth=1.2, zorder=7, aspect=None)
 
     ax.set_aspect("auto")
 
@@ -55,15 +55,18 @@ def _generate_grid(
 ) -> gpd.GeoDataFrame:
     """Build rectangular scoring boxes."""
     cfg = learner.config
-    dg = learner.data_generator
+    dg = learner.ground_truth_data_generator
 
     t_min = dg.min_temp
     t_max = dg.max_temp
 
     dt = cfg.scoring_grid_T_range
 
-    # Integer theta levels to score
-    theta_values = list(range(1, 17))
+    # Score all integer theta levels in the ground-truth domain.
+    theta_values = list(range(
+        dg.min_theta,
+        dg.max_theta + 1,
+    ))
 
     records = []
 
@@ -226,21 +229,24 @@ def _plot_metrics_by_iteration(
 
     fig.tight_layout()
     fig.subplots_adjust(top=0.88)
-    fig.savefig(csv_path.parent / "score_metrics.png", dpi=150)
+    fig.savefig(csv_path.parent / "score_metrics.pdf")
     plt.close(fig)
 
 def _calc_score(
     learner: "ActiveLearner",
     grid: gpd.GeoDataFrame,
     true_idx: set[int],
+    n_true_peaks: int,
     diagrams: list[DiagramOutput],
+    neighbor_distance: dict[str, float | int],
+    model_hyperparameters: dict[str, float],
     alpha: float = 1.0,
-    hit_counts: Optional[np.ndarray] = None,
+    hit_counts: np.ndarray | None = None,
 ) -> dict[str, float | int]:
     """Calculate and save scores by iteration."""
     n_scoring_samples = len(diagrams)
-    total_boxes = int(len(grid))
-    n_true = int(len(true_idx))
+    total_boxes = len(grid)
+    n_true = len(true_idx)
 
     if n_true == 0:
         raise RuntimeError(
@@ -257,12 +263,19 @@ def _calc_score(
     fp_sum = 0
     fn_sum = 0
 
+    predicted_peak_count_sum = 0
+    abs_peak_count_err_sum = 0
+
     # Per-cell hit counts across posterior diagrams
     if hit_counts is None:
         hit_counts = _compute_hit_counts(learner, grid, diagrams)
 
     for out in diagrams:
         ridge_x = out.peaks
+
+        predicted_peak_count_sum += ridge_x.shape[0]
+        abs_peak_count_err_sum += abs(ridge_x.shape[0] - n_true_peaks)
+        
 
         hit_gdf = _assign_ridge_points_to_grid(
             learner=learner,
@@ -307,6 +320,14 @@ def _calc_score(
     # Log likelihood/# grid cells, which can be easier to compare across grid sizes
     mean_log_likelihood = log_likelihood / len(grid)
 
+    new_x_raw = (
+        learner.data_generator
+        .untransform_inputs(learner.next_x.detach())
+        .cpu()
+        .numpy()
+        .tolist()
+    )
+
     metrics = {
         "iteration": int(learner._i),
         "acquisition": str(learner.config.acquisition_function),
@@ -325,6 +346,9 @@ def _calc_score(
         "n_scoring_samples": n_scoring_samples,
         "n_grid_boxes": total_boxes,
         "n_true_boxes": n_true,
+        "n_true_peaks": n_true_peaks,
+        "mean_predicted_peak_count": predicted_peak_count_sum / n_scoring_samples,
+        "mean_abs_peak_count_error": abs_peak_count_err_sum / n_scoring_samples,
         "mean_true_positives": tp_sum / n_scoring_samples,
         "mean_false_positives": fp_sum / n_scoring_samples,
         "mean_false_negatives": fn_sum / n_scoring_samples,
@@ -335,6 +359,11 @@ def _calc_score(
         "mean_log_likelihood": float(mean_log_likelihood),
     }
 
+    metrics.update(neighbor_distance)
+    metrics.update(model_hyperparameters)
+    metrics.update({
+        "sampled_x": json.dumps(new_x_raw),
+    }) # sampled_x is the point chosen and sampled during this iteration, before scoring.
     metrics_savepath = (
         Path(learner.config.base_savepath)
         / "scoring"
@@ -358,7 +387,7 @@ def _compute_grid_probs(
     grid: gpd.GeoDataFrame,
     diagrams: list[DiagramOutput],
     alpha: float = 1.0,
-    hit_counts: Optional[np.ndarray] = None,
+    hit_counts: np.ndarray | None = None,
 ) -> gpd.GeoDataFrame:
     """
     Compute Laplace-smoothed probability that each grid cell contains
@@ -411,6 +440,144 @@ def _compute_hit_counts(
 
     return hit_counts
 
+def _ridge_x_to_physical(
+    learner: "ActiveLearner",
+    ridge_x: torch.Tensor,
+) -> np.ndarray:
+    """Convert ridge coordinates from normalized to physical coordinates."""
+    if ridge_x.numel() == 0:
+        return np.empty((0, 2), dtype=float)
+
+    return (
+        learner.data_generator
+        .untransform_inputs(ridge_x.detach())
+        .cpu()
+        .numpy()
+    )
+
+def _same_slice_temperature_errors_K(
+    true_ridge_x: np.ndarray,
+    predicted_ridge_x: np.ndarray,
+) -> list[float]:
+    """Return predicted-to-true nearest-temperature errors by theta slice."""
+    true_peaks = np.atleast_2d(
+        np.asarray(true_ridge_x, dtype=float)
+    )
+    predicted_peaks = np.atleast_2d(
+        np.asarray(predicted_ridge_x, dtype=float)
+    )
+
+    if true_peaks.size == 0 or predicted_peaks.size == 0:
+        return []
+
+    errors_K = []
+
+    for predicted_peak in predicted_peaks:
+        predicted_temp_K = predicted_peak[0]
+        predicted_theta = predicted_peak[1]
+
+        true_same_slice = true_peaks[
+            np.isclose(true_peaks[:, 1], predicted_theta)
+        ]
+
+        if len(true_same_slice) == 0:
+            continue
+
+        errors_K.append(
+            float(
+                np.min(
+                    np.abs(
+                        true_same_slice[:, 0]
+                        - predicted_temp_K
+                    )
+                )
+            )
+        )
+
+    return errors_K
+
+
+def _calculate_neighbor_distance(
+    learner: "ActiveLearner",
+    gt_ridge_x: torch.Tensor,
+    posterior_diagrams: list[DiagramOutput],
+) -> dict[str, float]:
+    """Calculate mean same-slice absolute temperature error."""
+    gt_peaks_raw = _ridge_x_to_physical(
+        learner=learner,
+        ridge_x=gt_ridge_x,
+    )
+
+    diagram_mean_errors_K = []
+
+    for diagram in posterior_diagrams:
+        predicted_peaks_raw = _ridge_x_to_physical(
+            learner=learner,
+            ridge_x=diagram.peaks,
+        )
+
+        diagram_errors_K = _same_slice_temperature_errors_K(
+            true_ridge_x=gt_peaks_raw,
+            predicted_ridge_x=predicted_peaks_raw,
+        )
+
+        if diagram_errors_K:
+            diagram_mean_errors_K.append(
+                float(np.mean(diagram_errors_K))
+            )
+
+    return {
+        "same_slice_temp_error_mean_K": (
+            float(np.mean(diagram_mean_errors_K))
+            if diagram_mean_errors_K
+            else float("nan")
+        ),
+    }
+
+
+def _extract_model_hyperparameters(
+    learner: "ActiveLearner",
+) -> dict[str, float]:
+    """Extract fitted GP hyperparameters for the scoring CSV."""
+    lengthscale = (
+        learner.model.base_kernel.lengthscale
+        .detach()
+        .cpu()
+        .reshape(-1)
+    )
+
+    metrics = {
+        "outputscale": float(
+            learner.model.covar_module.outputscale
+            .detach()
+            .cpu()
+            .item()
+        ),
+        "noise": float(
+            learner.model.likelihood.noise
+            .detach()
+            .cpu()
+            .item()
+        ),
+    }
+
+    if lengthscale.numel() == 1:
+        metrics["lengthscale"] = float(lengthscale.item())
+    elif lengthscale.numel() == 2:
+        metrics["lengthscale_temperature"] = float(
+            lengthscale[0].item()
+        )
+        metrics["lengthscale_theta"] = float(
+            lengthscale[1].item()
+        )
+    else:
+        for dim, value in enumerate(lengthscale):
+            metrics[f"lengthscale_dim_{dim}"] = float(
+                value.item()
+            )
+
+    return metrics
+
 def score_model_plot(learner: "ActiveLearner"):
     """Overall function to calculate and save scores, along with plots illustrating the scoring process."""
     # Build dense evaluation grid for the background heatmaps
@@ -441,6 +608,20 @@ def score_model_plot(learner: "ActiveLearner"):
     )
     gt_item = gt_diagrams[0]
     gt_ridge_x = gt_item.peaks
+    n_true_peaks = gt_ridge_x.shape[0]
+
+    # print("GT ridge shape:", gt_ridge_x.shape)
+    # print("GT ridge normalized:", gt_ridge_x)
+
+    # if gt_ridge_x.numel() > 0:
+    #     gt_raw = (
+    #         learner.data_generator
+    #         .untransform_inputs(gt_ridge_x)
+    #         .detach()
+    #         .cpu()
+    #         .numpy()
+    #     )
+    #     print("GT ridge physical:\n", gt_raw)
 
     true_hits = _assign_ridge_points_to_grid(
         learner=learner,
@@ -452,6 +633,16 @@ def score_model_plot(learner: "ActiveLearner"):
     # Calculate and save score metrics
     posterior_diagrams = list(
         learner.diagram_generator.diagrams(learner.config.n_scoring_samples)
+    )
+
+    neighbor_distance = _calculate_neighbor_distance(
+        learner=learner,
+        gt_ridge_x=gt_ridge_x,
+        posterior_diagrams=posterior_diagrams,
+    )
+
+    model_hyperparameters = _extract_model_hyperparameters(
+        learner=learner,
     )
 
     hit_counts = _compute_hit_counts(
@@ -467,7 +658,10 @@ def score_model_plot(learner: "ActiveLearner"):
         learner=learner,
         grid=scoring_grid,
         true_idx=true_idx,
+        n_true_peaks=n_true_peaks,
         diagrams=posterior_diagrams,
+        neighbor_distance=neighbor_distance,
+        model_hyperparameters=model_hyperparameters,
         alpha=alpha,
         hit_counts=hit_counts,
     )
@@ -522,6 +716,7 @@ def score_model_plot(learner: "ActiveLearner"):
         z_gt,
         shading="flat",
         cmap="viridis",
+        rasterized=True,
     )
     ax[0, 0].set_title("Ground truth")
     ax[0, 0].set_aspect("auto")
@@ -532,12 +727,22 @@ def score_model_plot(learner: "ActiveLearner"):
         z_pred,
         shading="flat",
         cmap="viridis",
+        rasterized=True,
     )
+    mean_error_K = metrics["same_slice_temp_error_mean_K"]
+
+    mean_error_text = (
+        f"{mean_error_K:.1f} K"
+        if np.isfinite(mean_error_K)
+        else "N/A"
+    )
+
     ax[0, 1].set_title(
-        f"Sampled phase diagrams\n"
+        "Sampled phase diagrams\n"
         f"Recall={metrics['recall']:.3f}, "
         f"Precision={metrics['precision']:.3f}, "
-        f"F1={metrics['f1']:.3f}"
+        f"F1={metrics['f1']:.3f}\n"
+        f"Average nearest neighbor T difference={mean_error_text}"
     )
     ax[0, 1].set_aspect("auto")
 
@@ -560,10 +765,10 @@ def score_model_plot(learner: "ActiveLearner"):
     # Training data and newest selected point on middle panel
     if getattr(learner.config, "show_sampled_locations", True):
         xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
-        ax[0, 1].scatter(xs[:, 0], xs[:, 1], color="black", marker=".", zorder=6)
+        ax[0, 1].scatter(xs[:, 0], xs[:, 1], color="black", marker=".", zorder=2)
 
         new_xs = learner.data_generator.untransform_inputs(learner.next_x.detach())
-        ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100, zorder=7)
+        ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=45, zorder=10)
 
     for i in range(3):
         ax[0, i].set_xlabel("Temperature")
@@ -626,9 +831,9 @@ def score_model_plot(learner: "ActiveLearner"):
         Path(learner.config.base_savepath)
         / "scoring"
         / "scoring_plots"
-        / f"iteration_{learner._i}.png"
+        / f"iteration_{learner._i}.pdf"
     )
     savepath.parent.mkdir(exist_ok=True, parents=True)
 
-    plt.savefig(savepath, dpi=100)
+    plt.savefig(savepath)
     plt.close()
