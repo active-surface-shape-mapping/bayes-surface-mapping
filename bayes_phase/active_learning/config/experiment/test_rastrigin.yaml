@@ -1,0 +1,17 @@
+defaults:
+  - test_base_experiment
+acquisition_function: CELL
+diagram_generator: FIND_PEAKS
+dataset_type: SYNTHETIC
+target_name: "Rastrigin"
+target_shift: 80.0
+target_scale: -1.0
+target_kwargs:
+  dim_problem: 2
+iter_n_candidates: 1
+n_iters: 1
+callbacks:
+  - plot
+  # - plot3d
+  # - plot_acq
+  # - score_model_plot

@@ -15,7 +15,7 @@ from bayes_phase.acquisition.cell_cost import PeakCellCostEntropy
 from bayes_phase.acquisition.peak_cell_entropy import PeakCellEntropy
 from bayes_phase.active_learning import callbacks
 from bayes_phase.active_learning.config import ActiveLearnerConfig
-from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
+from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator, BayesODataGenerator
 from bayes_phase.models import make_prior, means
 from bayes_phase.models.standard_gp import StandardExactGP
 
@@ -31,12 +31,13 @@ class ActiveLearner:
         """
         self._t0 = time()
         self.config = config
-        self.init_data_generator = self._init_dataset(self.config.init_dataset_paths)
-        self.data_generator = self._init_dataset(self.config.sampling_dataset_paths)
-        self.ground_truth_data_generator = self._init_dataset(
-            self.config.ground_truth_dataset_paths
+
+        self.init_data_generator, self.data_generator, self.ground_truth_data_generator = (
+            self._init_datasets()
         )
+
         self._validate_sampling_methods()
+
         resolved_init_seed = (
             self.config.init_seed
             if self.config.init_seed is not None
@@ -44,12 +45,12 @@ class ActiveLearner:
         )
         if resolved_init_seed is None:
             raise ValueError("Either global_seed or init_seed must be specified.")
+
         self.init_seed: int = resolved_init_seed
 
         # Use an independent RNG stream for synthetic observation noise.
         self._observation_generator = torch.Generator()
         self._observation_generator.manual_seed(self.init_seed + 1_000_000)
-
         self._sobol_engine = torch.quasirandom.SobolEngine(
             dimension=2,
             scramble=True,
@@ -131,18 +132,51 @@ class ActiveLearner:
             self._ti_callbacks = time()
             self._log()
 
-    def _init_dataset(self, paths: list[str]) -> BaseDataGenerator:
-        """Initialize the data generator object.
+    def _init_datasets(self) -> tuple[BaseDataGenerator, BaseDataGenerator, BaseDataGenerator]:
+        """Initialize the data generator objects.
 
         For now, this uses simulated data, but could be replaced by a subroutine
         to run the simulation(s).
 
         Returns
         -------
-        data_generator
-            The object for generating observations/data.
-        """    
-        return SimulatedDataGenerator(paths)
+        (init_data_generator, data_generator, ground_truth_data_generator)
+            The objects for generating observations/data.
+        """
+        if self.config.dataset_type == "simulated":
+            init_data_generator = SimulatedDataGenerator(self.config.init_dataset_paths)
+            data_generator = SimulatedDataGenerator(self.config.sampling_dataset_paths)
+            ground_truth_data_generator = SimulatedDataGenerator(
+                self.config.ground_truth_dataset_paths
+            )
+        elif self.config.dataset_type == "synthetic":
+            init_data_generator = BayesODataGenerator(
+                self.config.target_name,
+                self.config.target_scale,
+                self.config.target_shift,
+                self.config.target_init_n_replicates,
+                self.config.target_init_noise,
+                **self.config.target_kwargs,
+            )
+            data_generator = BayesODataGenerator(
+                self.config.target_name,
+                self.config.target_scale,
+                self.config.target_shift,
+                self.config.target_sampling_n_replicates,
+                self.config.target_sampling_noise,
+                **self.config.target_kwargs,
+            )
+            ground_truth_data_generator = BayesODataGenerator(
+                self.config.target_name,
+                self.config.target_scale,
+                self.config.target_shift,
+                self.config.target_ground_truth_n_replicates,
+                self.config.target_ground_truth_noise,
+                **self.config.target_kwargs,
+            )
+        else:
+            raise NotImplementedError(f"Unrecognized dataset_type {self.config.dataset_type}")
+        return init_data_generator, data_generator, ground_truth_data_generator
 
     def _init_train_data(
         self,
