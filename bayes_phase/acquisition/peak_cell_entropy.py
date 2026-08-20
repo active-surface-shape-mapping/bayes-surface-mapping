@@ -1,12 +1,13 @@
+import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import gpytorch
 import numpy as np
 import torch
-import warnings
 from jaxtyping import Bool, Float
 from tqdm import tqdm
+
 from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 from bayes_phase.utils import eval_context
 
@@ -67,16 +68,16 @@ class PeakCellEntropy:
         self.learner = learner
 
         self.n_fantasies = int(
-            getattr(self.learner.config, "peak_cell_n_fantasies", 10)
+            getattr(self.learner.config, "acquisition_n_fantasies", 10)
         )
         self.n_mc_samples = int(
-            getattr(self.learner.config, "peak_cell_n_mc_samples", 100)
+            getattr(self.learner.config, "acquisition_n_mc_samples", 100)
         ) 
         self.n_temp_eval = int(
-            getattr(self.learner.config, "peak_cell_n_temp_eval", 100)
+            getattr(self.learner.config, "acquisition_n_temp_eval", 100)
         ) 
         self.sample_jitter = float(
-            getattr(self.learner.config, "peak_cell_sample_jitter", 1e-7)
+            getattr(self.learner.config, "acquisition_sample_jitter", 1e-7)
         )
 
         self.grid_spec = self._build_peak_cell_grid()
@@ -101,8 +102,23 @@ class PeakCellEntropy:
         X = X.to(device=device, dtype=dtype)
 
         # Baseline entropy for acquisition. Conditioned entropy will be subtracted from this.
+        # Peak-finding configuration shared with the diagram generator.
+        diagram_kwargs = getattr(
+            self.learner.config,
+            "diagram_generator_kwargs",
+            {},
+        )
+        peak_threshold = diagram_kwargs.get("peak_threshold", None)
+        max_n_peaks = diagram_kwargs.get("max_n_peaks", None)
+        peak_height_rule = diagram_kwargs.get("peak_height_rule", None)
+        extrema = diagram_kwargs.get("extrema", "peaks")
+
         baseline_entropy = self._estimate_peak_cell_entropy_from_model(
-            self.learner.model
+            self.learner.model,
+            peak_threshold=peak_threshold,
+            max_n_peaks=max_n_peaks,
+            peak_height_rule=peak_height_rule,
+            extrema=extrema,
         )
 
         # Initialize an empty tensor for acquisition scores
@@ -131,7 +147,11 @@ class PeakCellEntropy:
 
                 # Conditional entropy sum
                 post_entropy = self._estimate_peak_cell_entropy_from_model(
-                    fantasy_model
+                    fantasy_model,
+                    peak_threshold=peak_threshold,
+                    max_n_peaks=max_n_peaks,
+                    peak_height_rule=peak_height_rule,
+                    extrema=extrema,
                 )
                 post_entropies.append(post_entropy)
 
@@ -293,6 +313,10 @@ class PeakCellEntropy:
     def _estimate_peak_cell_entropy_from_model(
         self,
         model: gpytorch.models.ExactGP,
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ) -> torch.Tensor:
         """
         Given a model, calculate summed entropy across the space.
@@ -310,9 +334,16 @@ class PeakCellEntropy:
             dtype=torch.float64,
             device=f_samples.device,
         )
+
         # Accumulate hit_counts.
         for k in range(f_samples.shape[0]):
-            occupancy = self._sample_to_peak_cell_occupancy(f_samples[k])
+            occupancy = self._sample_to_peak_cell_occupancy(
+                f_samples[k],
+                peak_threshold=peak_threshold,
+                max_n_peaks=max_n_peaks,
+                peak_height_rule=peak_height_rule,
+                extrema=extrema,
+            )
             hit_counts += occupancy.to(hit_counts.dtype)
 
         if hit_counts.sum() == 0:
@@ -347,6 +378,10 @@ class PeakCellEntropy:
     def _sample_to_peak_cell_occupancy(
         self,
         f_sample: Float[torch.Tensor, "n_total"],
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ) -> Bool[torch.Tensor, "n_cells"]:
         """
         Given a sample, determine whether each cell is occupied (contains a peak)
@@ -366,7 +401,13 @@ class PeakCellEntropy:
             y_slice = f_sample[sl]
 
             # Find peaks.
-            peak_idxs = self._find_peak_idxs(y_slice)
+            peak_idxs = self._find_peak_idxs(
+                y_slice,
+                peak_threshold=peak_threshold,
+                max_n_peaks=max_n_peaks,
+                peak_height_rule=peak_height_rule,
+                extrema=extrema,
+            )
 
             if len(peak_idxs) == 0:
                 continue
@@ -409,19 +450,22 @@ class PeakCellEntropy:
 
         return occupancy
 
+
     def _find_peak_idxs(
         self,
         y_slice: Float[torch.Tensor, "n"],
+        *,
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ) -> np.ndarray:
-        """
-        Call peak finder.
-        """
-
-        diagram_kwargs = getattr(self.learner.config, "diagram_generator_kwargs", {})
+        """Call peak finder."""
 
         return find_slice_peak_idxs(
             y_slice,
-            peak_threshold=diagram_kwargs.get("peak_threshold", None),
-            max_n_peaks=diagram_kwargs.get("max_n_peaks", None),
-            peak_height_rule=diagram_kwargs.get("peak_height_rule", None),
+            peak_threshold=peak_threshold,
+            max_n_peaks=max_n_peaks,
+            peak_height_rule=peak_height_rule,
+            extrema=extrema,
         )

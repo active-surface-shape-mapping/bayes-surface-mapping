@@ -110,9 +110,8 @@ class DistanceDispersion:
             "peak_threshold": diagram_kwargs.get("peak_threshold"),
             "max_n_peaks": diagram_kwargs.get("max_n_peaks"),
             "peak_height_rule": diagram_kwargs.get("peak_height_rule"),
-            "find_valleys_instead_of_peaks": diagram_kwargs.get(
-                "find_valleys_instead_of_peaks",
-                False,
+            "extrema": diagram_kwargs.get(
+                "extrema",
             ),
         }
 

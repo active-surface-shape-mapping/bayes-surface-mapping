@@ -13,7 +13,6 @@ from tqdm import tqdm
 from bayes_phase.acquisition import EIG, DistanceDispersion, diagram_generation
 from bayes_phase.acquisition.cell_cost import PeakCellCostEntropy
 from bayes_phase.acquisition.peak_cell_entropy import PeakCellEntropy
-from bayes_phase.acquisition.peak_finding import set_find_valleys_by_default
 from bayes_phase.active_learning import callbacks
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
@@ -32,12 +31,6 @@ class ActiveLearner:
         """
         self._t0 = time()
         self.config = config
-        set_find_valleys_by_default(
-            config.diagram_generator_kwargs.get(
-                "find_valleys_instead_of_peaks",
-                False,
-            )
-        )
         self.init_data_generator = self._init_dataset(self.config.init_dataset_paths)
         self.data_generator = self._init_dataset(self.config.sampling_dataset_paths)
         self.ground_truth_data_generator = self._init_dataset(

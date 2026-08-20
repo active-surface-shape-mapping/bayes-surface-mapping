@@ -1,18 +1,15 @@
-from bayes_phase.acquisition.diagram_generation import BaseDiagramGenerator
-import torch
-from scipy.signal import find_peaks
-from typing import Optional, TYPE_CHECKING
 from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
+from typing import Literal
 
-if TYPE_CHECKING:
-    from bayes_phase.active_learning import ActiveLearner
+import matplotlib.pyplot as plt
+import torch
+
+from bayes_phase.acquisition.diagram_generation import BaseDiagramGenerator
+from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
+from bayes_phase.data_io.base_data_generator import BaseDataGenerator
+from bayes_phase.utils import eval_context
 
 from .base_diagram_generator import DiagramOutput
-from bayes_phase.utils import eval_context
-from bayes_phase.data_io.base_data_generator import BaseDataGenerator
-from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 
 
 class FindPeaksDiagramGenerator(BaseDiagramGenerator):
@@ -20,10 +17,11 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self,
         learner,
         n_temp_grid: int = 100,
-        peak_threshold: Optional[float] = None,
-        max_n_peaks: Optional[int] = None,
-        peak_height_rule: Optional[str] = None,
-        jitter: float = 1e-12,
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        jitter: float = 1e-12,        
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ):
         """Initialize a generator of phase diagram samples using peak-finding.
 
@@ -55,6 +53,13 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self.max_n_peaks = max_n_peaks
         self.peak_height_rule = peak_height_rule
         self.jitter = jitter
+        self.extrema = extrema
+
+        if extrema not in {"peaks", "valleys"}:
+            raise ValueError(
+                f"Unknown extrema={extrema!r}. Expected 'peaks' or 'valleys'."
+            )
+
         self._update()
 
     def _update(self):
@@ -78,8 +83,8 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
 
     def generate_diagram(
         self,
-        data_generator: Optional[BaseDataGenerator] = None,
-        use_log_transform: bool = True,
+        data_generator: BaseDataGenerator | None = None,
+        use_log_transform: bool | None = None,
         **kwargs,
     ) -> DiagramOutput:
         """Generate a single sample of the phase diagram boundary.
@@ -91,6 +96,10 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
             points representing the phase diagram boundary, and the second
             element is the GP sample path corresponding to that boundary.
         """
+
+        if use_log_transform is None:
+            use_log_transform = self.learner.config.use_log_transform
+            
         if data_generator is not None:  # Use ground-truth data
             sample = (
                 data_generator.measure_uniform(self.points)
@@ -104,13 +113,14 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
                 (self.n_temp_grid, self.n_theta_grid)
             )
         peak_locations = []
-
+        
         for i, row in enumerate(sample.T):
             peak_idxs = find_slice_peak_idxs(
                 row,
                 peak_threshold=self.peak_threshold,
                 max_n_peaks=self.max_n_peaks,
                 peak_height_rule=self.peak_height_rule,
+                extrema=self.extrema,
             )
 
             temps = self.temp_grid[peak_idxs]
@@ -129,7 +139,7 @@ class FindPeaksDiagramGenerator(BaseDiagramGenerator):
         self,
         n_diagrams: int,
         plot: bool = False,
-        plot_full_every: Optional[int] = None,
+        plot_full_every: int | None = None,
         **kwargs,
     ) -> list[DiagramOutput]:
         """Get a list of phase diagram boundaries.

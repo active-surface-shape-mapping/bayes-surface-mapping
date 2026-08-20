@@ -96,7 +96,7 @@ def _plot_mst_diagrams(
         edges = _create_mst(diagram, n_theta=n_theta, learner=learner)
 
         if learner.config.show_points_tree_graphs:
-            ax.scatter(xys[:, 0], xys[:, 1], s=5, color=c)
+            ax.scatter(xys[:, 0], xys[:, 1], s=5, color=c, zorder=8)
 
         if learner.config.tree_graph_type == "MST":
             for a, b in edges.tolist():
@@ -353,7 +353,7 @@ def plot_mst(
         origin="lower",
     )
     savepath = (
-        Path(learner.config.base_savepath) / "mst_plots" / f"iteration_{learner._i}.png"
+        Path(learner.config.base_savepath) / "mst_plots" / f"iteration_{learner._i}.pdf"
     )
     ax[0, 1].set_aspect("auto")
     xs = learner.data_generator.untransform_inputs(learner.train_x.detach())
@@ -380,43 +380,6 @@ def plot_mst(
     plt.savefig(savepath, dpi=100)
     plt.close()
 
-
-
-def _filter_points_above_slice_median(
-    peaks: torch.Tensor,
-    sample: torch.Tensor,
-    learner: "ActiveLearner",
-) -> torch.Tensor:
-    """
-    Helper that allows us to draw connections only between points above the median of a slice. 
-    Doesn't affect active learning computations, just clarity of plots.
-    """
-
-    if peaks.numel() == 0:
-        return peaks
-
-    n_theta = learner.data_generator.theta_range
-    n_temp = sample.shape[0]
-
-    keep = []
-
-    for p in peaks:
-        temp_u = p[0]
-        theta_u = p[1]
-
-        theta_idx = int(round(float(theta_u * n_theta)))
-        temp_idx = int(round(float(temp_u * (n_temp - 1))))
-
-        theta_idx = max(0, min(theta_idx, sample.shape[1] - 1))
-        temp_idx = max(0, min(temp_idx, sample.shape[0] - 1))
-
-        slice_y = sample[:, theta_idx]
-        slice_median = torch.median(slice_y)
-
-        keep.append(sample[temp_idx, theta_idx] > slice_median)
-
-    keep = torch.tensor(keep, dtype=torch.bool, device=peaks.device)
-    return peaks[keep]
 
 
 def _is_forbidden_region(x_raw: torch.Tensor, learner: "ActiveLearner") -> torch.Tensor:

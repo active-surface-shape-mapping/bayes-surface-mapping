@@ -53,7 +53,7 @@ def default_diagram_generator_kwargs() -> dict[str, Any]:
         "peak_height_rule": None,
         "n_temp_grid": 100,
         "jitter": 1e-12,
-        "find_valleys_instead_of_peaks": False
+        "extrema": "peaks",
     }
 
 # Limit visual connections in phase diagram plots
