@@ -1,0 +1,4 @@
+defaults:
+  - test_base_experiment
+acquisition_function: CELL
+diagram_generator: FIND_PEAKS
