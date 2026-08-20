@@ -1,13 +1,13 @@
+import warnings
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal
 
 import gpytorch
 import numpy as np
 import torch
-import warnings
 from jaxtyping import Bool, Float
-from scipy.signal import find_peaks
 from tqdm import tqdm
+
 from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 from bayes_phase.utils import eval_context
 
@@ -26,10 +26,10 @@ class PeakCellGridSpec:
     The random variable for each cell is Bernoulli.
     """
 
-    x_eval: Float[torch.Tensor, "n_total 2"]
+    x_eval: Float[torch.Tensor, "n_total 2"] # The full set of evaluation locations.
     temp_eval: Float[torch.Tensor, "n_temp"]
     theta_values: Float[torch.Tensor, "n_theta"]
-    theta_indices: list[int]
+    theta_values_raw: list[int]
     idxs_by_theta: dict[int, slice]
     temp_edges_raw: np.ndarray
     temp_raw: np.ndarray
@@ -52,23 +52,32 @@ class PeakCellEntropy:
     5. Compute summed Bernoulli entropy across cells.
     6. For each candidate x, fantasize observations y_x.
     7. Condition the GP on each fantasy and recompute expected entropy.
-    8. Score candidate by entropy reduction.
+    8. Score candidate by expected entropy reduction.
     """
 
     def __init__(self, learner: "ActiveLearner"):
+        """Initialize the acquisition with learner and config features.
+        
+        Args:
+        n_fantasies: Number of fantasy observations per candidate.
+        n_mc_samples: Number of posterior function values used to estimate cell-occupancy probabilities.
+        n_temp_eval: Controls the density of the grid used for peak finding.
+        sample_jitter: Covariance jitter to add before Cholesky sampling of posterior functions.
+        """
+
         self.learner = learner
 
         self.n_fantasies = int(
-            getattr(self.learner.config, "peak_cell_n_fantasies", 10)
+            getattr(self.learner.config, "acquisition_n_fantasies", 10)
         )
         self.n_mc_samples = int(
-            getattr(self.learner.config, "peak_cell_n_mc_samples", 100)
+            getattr(self.learner.config, "acquisition_n_mc_samples", 100)
         ) 
         self.n_temp_eval = int(
-            getattr(self.learner.config, "peak_cell_n_temp_eval", 100)
-        ) # density of grid for peak finding
+            getattr(self.learner.config, "acquisition_n_temp_eval", 100)
+        ) 
         self.sample_jitter = float(
-            getattr(self.learner.config, "peak_cell_sample_jitter", 1e-7)
+            getattr(self.learner.config, "acquisition_sample_jitter", 1e-7)
         )
 
         self.grid_spec = self._build_peak_cell_grid()
@@ -93,16 +102,23 @@ class PeakCellEntropy:
         X = X.to(device=device, dtype=dtype)
 
         # Baseline entropy for acquisition. Conditioned entropy will be subtracted from this.
-        diagram_kwargs = getattr(self.learner.config, "diagram_generator_kwargs", {})
+        # Peak-finding configuration shared with the diagram generator.
+        diagram_kwargs = getattr(
+            self.learner.config,
+            "diagram_generator_kwargs",
+            {},
+        )
         peak_threshold = diagram_kwargs.get("peak_threshold", None)
         max_n_peaks = diagram_kwargs.get("max_n_peaks", None)
         peak_height_rule = diagram_kwargs.get("peak_height_rule", None)
+        extrema = diagram_kwargs.get("extrema", "peaks")
 
         baseline_entropy = self._estimate_peak_cell_entropy_from_model(
             self.learner.model,
             peak_threshold=peak_threshold,
             max_n_peaks=max_n_peaks,
             peak_height_rule=peak_height_rule,
+            extrema=extrema,
         )
 
         # Initialize an empty tensor for acquisition scores
@@ -135,6 +151,7 @@ class PeakCellEntropy:
                     peak_threshold=peak_threshold,
                     max_n_peaks=max_n_peaks,
                     peak_height_rule=peak_height_rule,
+                    extrema=extrema,
                 )
                 post_entropies.append(post_entropy)
 
@@ -159,46 +176,47 @@ class PeakCellEntropy:
         # Normalized temperature grid from 0 to 1
         temp_eval = torch.linspace(0.0, 1.0, self.n_temp_eval, device=device, dtype=dtype)
 
-        # All discrete theta indices
+        # Build a list of discrete theta values
         theta_range = dg.theta_range
-        theta_indices = list(range(dg.min_theta, dg.max_theta + 1))
+        theta_values_raw = list(range(dg.min_theta, dg.max_theta + 1))
 
-        # Normalize theta
+        # Map each discrete raw theta value into the GP's input space.
         theta_values = torch.tensor(
-            [(theta_idx - dg.min_theta) / theta_range for theta_idx in theta_indices],
+            [(theta_val_raw - dg.min_theta) / theta_range for theta_val_raw in theta_values_raw],
             device=device,
             dtype=dtype,
         )
 
-        # Set up and fill blocks so we can process one slice at a time.
-        # Each x-block contains normalized temperature, coverage pairs for one fixed theta.
-        x_blocks = []
-        idxs_by_theta = {}
+        # Initialize containers 
+        x_slices: list[torch.Tensor] = []
+        idxs_by_theta: dict[int, slice] = {}
         start = 0
 
-        for theta_idx, theta_val in zip(theta_indices, theta_values):
+        for theta_val_raw, theta_val in zip(theta_values_raw, theta_values):
             theta_block = torch.full_like(temp_eval, fill_value=theta_val)
-            x_block = torch.stack([temp_eval, theta_block], dim=-1)
-            x_blocks.append(x_block)
+            x_slice = torch.stack([temp_eval, theta_block], dim=-1) # [n_temp_eval, 2]
+            x_slices.append(x_slice)
 
             stop = start + temp_eval.numel()
-            idxs_by_theta[int(theta_idx)] = slice(start, stop)
+            idxs_by_theta[int(theta_val_raw)] = slice(start, stop)
             start = stop
 
-        x_eval = torch.vstack(x_blocks)
+        x_eval = torch.vstack(x_slices) # [n_theta*n_temp_eval, 2]
 
         # Convert normalized temp grid back to raw temperatures for binning peak locations.
         theta_dummy = torch.zeros_like(temp_eval)
-        x2 = torch.stack([temp_eval, theta_dummy], dim=-1)
+        temp_eval_with_dummy_theta = torch.stack([temp_eval, theta_dummy], dim=-1)
         temp_raw = (
-            dg.untransform_inputs(x2)[:, 0]
+            dg.untransform_inputs(temp_eval_with_dummy_theta)[:, 0]
             .detach()
             .cpu()
             .numpy()
         )
 
-        # Use same temperature bins as scoring.
+        # Construct raw-temperature cell edges based on scoring_grid_T_range, which is also used for scoring.
         dt = float(getattr(cfg, "scoring_grid_T_range", 50))
+        if dt <= 0:
+            raise ValueError(f"scoring_grid_T_range must be positive; got {dt}.")
         temp_edges = [dg.min_temp]
         while temp_edges[-1] < dg.max_temp:
             temp_edges.append(min(temp_edges[-1] + dt, dg.max_temp))
@@ -207,14 +225,15 @@ class PeakCellEntropy:
 
         # Count cells.
         n_temp_bins = len(temp_edges_raw) - 1
-        n_theta = len(theta_indices)
+        n_theta = len(theta_values_raw)
         n_cells = n_temp_bins * n_theta
 
+        # Return the evaluation and cell data all together. 
         return PeakCellGridSpec(
             x_eval=x_eval,
             temp_eval=temp_eval,
             theta_values=theta_values,
-            theta_indices=theta_indices,
+            theta_values_raw=theta_values_raw,
             idxs_by_theta=idxs_by_theta,
             temp_edges_raw=temp_edges_raw,
             temp_raw=temp_raw,
@@ -262,7 +281,7 @@ class PeakCellEntropy:
         device = x_eval.device
         dtype = x_eval.dtype
 
-
+        # Model posterior.
         with eval_context(model):
             posterior = model(x_eval)
             mean = posterior.mean.reshape(-1)
@@ -294,9 +313,10 @@ class PeakCellEntropy:
     def _estimate_peak_cell_entropy_from_model(
         self,
         model: gpytorch.models.ExactGP,
-        peak_threshold: Optional[float] = None,
-        max_n_peaks: Optional[int] = None,
-        peak_height_rule: Optional[Literal["above_median"]] = None,
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ) -> torch.Tensor:
         """
         Given a model, calculate summed entropy across the space.
@@ -308,12 +328,13 @@ class PeakCellEntropy:
             n_samples=self.n_mc_samples,
         )
 
-        # Which cells contain a peak? Any peak within a cell is classified as a hit.
+        # Which cells contain a peak? Any cell with a peak is classified as a hit.
         hit_counts = torch.zeros(
             self.grid_spec.n_cells,
             dtype=torch.float64,
             device=f_samples.device,
         )
+
         # Accumulate hit_counts.
         for k in range(f_samples.shape[0]):
             occupancy = self._sample_to_peak_cell_occupancy(
@@ -321,6 +342,7 @@ class PeakCellEntropy:
                 peak_threshold=peak_threshold,
                 max_n_peaks=max_n_peaks,
                 peak_height_rule=peak_height_rule,
+                extrema=extrema,
             )
             hit_counts += occupancy.to(hit_counts.dtype)
 
@@ -356,9 +378,10 @@ class PeakCellEntropy:
     def _sample_to_peak_cell_occupancy(
         self,
         f_sample: Float[torch.Tensor, "n_total"],
-        peak_threshold: Optional[float] = None,
-        max_n_peaks: Optional[int] = None,
-        peak_height_rule: Optional[Literal["above_median"]] = None,
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ) -> Bool[torch.Tensor, "n_cells"]:
         """
         Given a sample, determine whether each cell is occupied (contains a peak)
@@ -372,9 +395,9 @@ class PeakCellEntropy:
         )
 
         # Accumulate occupancy one slice at a time
-        for theta_pos, theta_idx in enumerate(self.grid_spec.theta_indices):
+        for theta_pos, theta_val_raw in enumerate(self.grid_spec.theta_values_raw):
             # Grab the sampled function values along temperature for the current theta.
-            sl = self.grid_spec.idxs_by_theta[theta_idx]
+            sl = self.grid_spec.idxs_by_theta[theta_val_raw]
             y_slice = f_sample[sl]
 
             # Find peaks.
@@ -383,6 +406,7 @@ class PeakCellEntropy:
                 peak_threshold=peak_threshold,
                 max_n_peaks=max_n_peaks,
                 peak_height_rule=peak_height_rule,
+                extrema=extrema,
             )
 
             if len(peak_idxs) == 0:
@@ -426,16 +450,22 @@ class PeakCellEntropy:
 
         return occupancy
 
+
     def _find_peak_idxs(
         self,
         y_slice: Float[torch.Tensor, "n"],
-        **kwargs,
+        *,
+        peak_threshold: float | None = None,
+        max_n_peaks: int | None = None,
+        peak_height_rule: Literal["above_median"] | None = None,
+        extrema: Literal["peaks", "valleys"] = "peaks",
     ) -> np.ndarray:
-        """
-        Call peak finder.
-        """
+        """Call peak finder."""
 
         return find_slice_peak_idxs(
             y_slice,
-            **kwargs,
+            peak_threshold=peak_threshold,
+            max_n_peaks=max_n_peaks,
+            peak_height_rule=peak_height_rule,
+            extrema=extrema,
         )

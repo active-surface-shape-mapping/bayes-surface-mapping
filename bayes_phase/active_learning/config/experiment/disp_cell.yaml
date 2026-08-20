@@ -1,0 +1,4 @@
+defaults:
+  - disp_base
+acquisition_function: CELL
+acquisition_n_mc_samples: 150

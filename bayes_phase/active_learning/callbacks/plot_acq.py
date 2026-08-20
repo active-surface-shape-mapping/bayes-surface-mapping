@@ -26,7 +26,7 @@ def plot_acq(learner: "ActiveLearner"):
     # output folder
     out_dir = Path(learner.config.base_savepath) / "Acquisition plots"
     out_dir.mkdir(exist_ok=True, parents=True)
-    savepath_png = out_dir / f"iteration_{learner._i:03d}.png"
+    savepath_pdf = out_dir / f"iteration_{learner._i:03d}.pdf"
     savepath_html = out_dir / f"iteration_{learner._i:03d}.html"
 
     # sampled points
@@ -36,9 +36,8 @@ def plot_acq(learner: "ActiveLearner"):
     xs_all = learner.data_generator.untransform_inputs(learner.train_x.detach())
     z_all = learner.train_y_orig.detach().reshape(-1)
 
-    # Only points sampled during AL, excluding the most recent point (plotted separately in orange)
-    xs = xs_all[n_init:-1]
-    z_samp = z_all[n_init:-1]
+    xs = xs_all[:-1]
+    z_samp = z_all[:-1]
 
     new_xs = learner.data_generator.untransform_inputs(learner.next_x.detach())
     z_next = learner.next_y_orig.detach().reshape(-1)

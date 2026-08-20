@@ -2,3 +2,10 @@ defaults:
   - experiment: ???
   - override hydra/launcher: joblib
   - _self_
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_${hydra:runtime.choices.experiment}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra:runtime.choices.experiment}/${hydra.job.num}
