@@ -19,27 +19,26 @@ diagram_generator_kwargs:
   max_n_peaks: 2
   peak_threshold: 0.035
 acquisition_function: DISPERSION
-addon_data_noise_std: 0.01 #0.0
-gp_noise_ceiling: null # 5e-3
+addon_data_noise_std: 0.01
+gp_noise_ceiling: null
 gp_noise_floor: 1e-6 # 1e-4
 init_dataset_paths:  [
         "data/111_Cv_run1.arrow",
         "data/111_Cv_run2.arrow",
         "data/111_Cv_run3.arrow",
-    ] # ['data/111_Cv_run1.arrow']
+    ]
 sampling_dataset_paths: [
         "data/111_Cv_run1.arrow",
         "data/111_Cv_run2.arrow",
         "data/111_Cv_run3.arrow",
-    ] # ['data/111_Cv_run1.arrow'] 
+    ]
 ground_truth_dataset_paths: [
         "data/111_Cv_run1.arrow",
         "data/111_Cv_run2.arrow",
         "data/111_Cv_run3.arrow",
-    ] # ['data/111_Cv_run1.arrow']
+    ]
 gp_noise_prior: 
   name: LogNormalPrior
   kwargs:
     loc: -7.0
     scale: 1.5
-# None
