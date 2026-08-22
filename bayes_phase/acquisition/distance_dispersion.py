@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from bayes_phase.active_learning import ActiveLearner
 
 
-# TODO: Incorporate common random numbers for pre vs. post-conditioning draws. Additional testing with noisy fantasies. 
+# TODO: Try common random numbers for pre vs. post-conditioning draws. Additional testing with noisy fantasies. 
 
 @dataclass
 class DispersionGridSpec:

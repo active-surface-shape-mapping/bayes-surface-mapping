@@ -190,8 +190,8 @@ def _plot_metrics_by_iteration(
 
     if learner.config.acquisition_function == "random":
         literate_acquisition_function = "Random sampling"
-    elif learner.config.acquisition_function == "mutual_information":
-        literate_acquisition_function = "Mutual information"
+    elif learner.config.acquisition_function == "dispersion":
+        literate_acquisition_function = "EFDI"
     elif learner.config.acquisition_function == "eig":
         literate_acquisition_function = "EIG"
     elif learner.config.acquisition_function == "sobol":
