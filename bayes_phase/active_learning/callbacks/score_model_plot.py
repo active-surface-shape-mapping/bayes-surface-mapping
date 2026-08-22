@@ -742,7 +742,7 @@ def score_model_plot(learner: "ActiveLearner"):
         f"Recall={metrics['recall']:.3f}, "
         f"Precision={metrics['precision']:.3f}, "
         f"F1={metrics['f1']:.3f}\n"
-        f"Average nearest neighbor T difference={mean_error_text}"
+        f"Average predicted ridge point temperature error={mean_error_text}"
     )
     ax[0, 1].set_aspect("auto")
 
@@ -757,8 +757,7 @@ def score_model_plot(learner: "ActiveLearner"):
         zorder=1,
     )
     ax[0, 2].set_title(
-        f"Ridge point probability\n"
-        f"Log likelihood={metrics['log_likelihood']:.3f}"
+        f"Ridge point probability"
     )
     ax[0, 2].set_aspect("auto")
 
