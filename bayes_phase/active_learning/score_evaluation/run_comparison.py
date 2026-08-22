@@ -27,7 +27,7 @@ METRIC_CONFIGS: dict[str, dict[str, Any]] = {
         "threshold": 1.0,
     },
     "same_slice_temp_error_mean_K": {
-        "label": "nearest neighbor temperature error (K)",
+        "label": "predicted ridge point temperature error (K)",
         "higher_is_better": False,
         "threshold": 50.0,
     },
