@@ -128,7 +128,7 @@ def plot_acq(learner: "ActiveLearner"):
     # title with literate method name
     method = learner.config.acquisition_function
     METHOD_LABEL = {
-        "mutual_information": "Mutual Information",
+        "dispersion": "EFDI",
         "eig": "EIG",
         "random": "Random Sampling",
     }

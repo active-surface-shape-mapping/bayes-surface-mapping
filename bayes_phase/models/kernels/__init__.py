@@ -1,2 +1,0 @@
-from .rbf_kernel_with_grad import RBFKernelWithGrad as RBFKernelWithGrad
-from .matern52_kernel_with_grad import Matern52KernelWithGrad as Matern52KernelWithGrad

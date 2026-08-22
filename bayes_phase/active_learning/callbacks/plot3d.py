@@ -105,14 +105,14 @@ def plot3d(learner: "ActiveLearner"):
     # Method-dependent peak color
     method = learner.config.acquisition_function
     peak_color = {
-        "mutual_information": "green",
+        "dispersion": "green",
         "eig": "blue",
         "random": "red",
     }.get(method, "white")
 
     # Title text
     METHOD_LABEL = {
-        "mutual_information": "Mutual Information",
+        "dispersion": "EFDI",
         "eig": "EIG",
         "random": "Random Sampling",
     }
