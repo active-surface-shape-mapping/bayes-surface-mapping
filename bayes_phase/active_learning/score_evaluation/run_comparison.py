@@ -27,7 +27,7 @@ METRIC_CONFIGS: dict[str, dict[str, Any]] = {
         "threshold": 1.0,
     },
     "same_slice_temp_error_mean_K": {
-        "label": "predicted ridge point temperature error (K)",
+        "label": "ridge point temperature error (K)",
         "higher_is_better": False,
         "threshold": 50.0,
     },
@@ -38,10 +38,18 @@ METRIC_CONFIGS: dict[str, dict[str, Any]] = {
     },
 }
 
+METHOD_ORDER = [
+    "ESDI",
+    "EIG",
+    "Random",
+    "Sobol",
+    "Cell",
+]
+
 METRICS = tuple(METRIC_CONFIGS)
+
 PLOT_METRICS = (
     "f1",
-    "mean_abs_peak_count_error",
     "same_slice_temp_error_mean_K",
 )
 
@@ -50,7 +58,7 @@ METHOD_COLORS = {
     "EIG": "red",
     "Sobol": "black",
     "Cell": "purple",
-    "EFDI": "blue",
+    "ESDI": "blue",
 }
 
 METHOD_MARKERS = {
@@ -58,7 +66,7 @@ METHOD_MARKERS = {
     "EIG": "s",
     "Sobol": "D",
     "Cell": "o",
-    "EFDI": "^",
+    "ESDI": "^",
 }
 
 
@@ -356,7 +364,11 @@ def plot_metric_by_method(
         df = df[df["iteration"] < n_iters]
 
     if methods is None:
-        methods = sorted(df["run"].unique())
+        available_methods = set(df["run"].unique())
+        methods = [
+            *[m for m in METHOD_ORDER if m in available_methods],
+            *[m for m in available_methods if m not in METHOD_ORDER],
+        ]
 
     if threshold is None:
         threshold = metric_config.get("threshold")
@@ -581,7 +593,7 @@ def compare_method_pairs(
 def format_comparison_report(
     comparisons: Iterable[Mapping[str, Any]],
 ) -> str:
-    """Format comparison dictionaries as a concise plain-text report."""
+    """Format comparison dictionaries as a plain-text report."""
     sections: list[str] = []
 
     for result in comparisons:

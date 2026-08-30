@@ -1,6 +1,6 @@
 callbacks:
   - score_model_plot
-n_iters: 400
+n_iters: 300
 global_seed: 42
 init_data_strategy: SOBOL
 cand_data_strategy: SOBOL

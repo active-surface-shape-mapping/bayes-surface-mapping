@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from bayes_phase.active_learning import ActiveLearner
 
 
-# TODO: Try common random numbers for pre vs. post-conditioning draws. Additional testing with noisy fantasies. 
+# TODO: Try common random numbers for pre vs. post-conditioning draws. 
 
 @dataclass
 class DispersionGridSpec:
@@ -40,8 +40,8 @@ class DistanceDispersion:
     """Score candidates by expected reduction in feature dispersion.
 
     Feature dispersion is estimated from posterior function samples over a
-    local window of discrete theta slices. For each candidate, possible latent
-    function values are generated either by Monte Carlo sampling or
+    local window of discrete theta slices. For each candidate, possible 
+    observations are generated either by Monte Carlo sampling or
     Gauss-Hermite quadrature. The GP is conditioned on each fantasy value, and
     the acquisition score is the baseline dispersion minus the expected
     posterior dispersion.
@@ -536,7 +536,7 @@ class DistanceDispersion:
         x_new: Float[torch.Tensor, "1 d"],
         n_fantasies: int,
     ) -> Float[torch.Tensor, "n_fantasies"]:
-        """Sample latent-function fantasy values at one candidate.
+        """Sample fantasy values at one candidate.
 
         Parameters
         ----------
@@ -554,9 +554,10 @@ class DistanceDispersion:
         """
         with eval_context(model):
             posterior = self._get_posterior(
-    model,
-    x_new,
-)
+                model,
+                x_new,
+                include_noise=True,
+            )
 
             if torch.any(
                 posterior.variance < -1e-6
@@ -606,7 +607,7 @@ class DistanceDispersion:
 
         ``E[g(Y)] = sum_i weights[i] * g(fantasy_y[i])``,
 
-        where ``Y`` follows the univariate latent GP posterior at ``x_new``.
+        where ``Y`` follows the univariate GP posterior at ``x_new``.
 
         Parameters
         ----------
@@ -620,7 +621,7 @@ class DistanceDispersion:
         Returns
         -------
         fantasy_y
-            Latent-function values at transformed quadrature nodes.
+            Fantasy values at transformed quadrature nodes.
         weights
             Normalized quadrature weights.
         """
@@ -633,6 +634,7 @@ class DistanceDispersion:
             posterior = self._get_posterior(
                 model,
                 x_new,
+                include_noise=True,
             )
 
             if posterior.mean.numel() != 1:
@@ -806,9 +808,31 @@ class DistanceDispersion:
     def _get_posterior(
         model: gpytorch.models.ExactGP,
         x: torch.Tensor,
+        *,
+        include_noise: bool = False,
     ) -> gpytorch.distributions.MultivariateNormal:
-        """Evaluate an ExactGP and verify its posterior distribution type."""
+        """Evaluate an ExactGP posterior.
+
+        Parameters
+        ----------
+        model
+            GP model defining the posterior.
+        x
+            Input coordinates.
+        include_noise
+            If True, return the posterior predictive distribution of noisy
+            observations. If False, return the latent-function posterior.
+
+        Returns
+        -------
+        gpytorch.distributions.MultivariateNormal
+            Latent posterior if ``include_noise=False``; noisy predictive
+            posterior if ``include_noise=True``.
+        """
         posterior = model(x)
+
+        if include_noise:
+            posterior = model.likelihood(posterior)
 
         if not isinstance(
             posterior,

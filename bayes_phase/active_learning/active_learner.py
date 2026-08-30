@@ -51,6 +51,11 @@ class ActiveLearner:
         # Use an independent RNG stream for synthetic observation noise.
         self._observation_generator = torch.Generator()
         self._observation_generator.manual_seed(self.init_seed + 1_000_000)
+
+        # Independent persistent RNG stream for random acquisition.
+        self._random_acquisition_generator = torch.Generator()
+        self._random_acquisition_generator.manual_seed(self.init_seed + 2_000_000)
+        
         self._sobol_engine = torch.quasirandom.SobolEngine(
             dimension=2,
             scramble=True,
@@ -345,6 +350,7 @@ class ActiveLearner:
         seed: int,
     ) -> Float[torch.Tensor, "n 2"]:
         """Generate point candidates in normalized coordinates."""
+        # TODO: Work on marginal Sobol strategy
         if self.config.cand_data_strategy == "sobol":
             # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
@@ -694,19 +700,45 @@ class ActiveLearner:
             The acquired point(s) and the mean and standard deviation of the
             corresponding observed y-values.
         """
-            
+                    
         # Random
         if self.config.acquisition_function == "random":
-            # Seed the random acquisition independently for each AL iteration.
-            generator = torch.Generator()
-            generator.manual_seed(self._candidate_seed)
+            generator = self._random_acquisition_generator
 
-            next_x = torch.rand(
-                (1, 2),
-                generator=generator,
+            # Sample temperature uniformly in raw coordinates.
+            min_temp = float(self.data_generator.min_temp)
+            max_temp = float(self.data_generator.max_temp)
+
+            temp_raw = (
+                min_temp
+                + (max_temp - min_temp)
+                * torch.rand(
+                    (1,),
+                    generator=generator,
+                    dtype=torch.get_default_dtype(),
+                )
             )
-            next_x_quantized = self._quantize_theta(next_x)
-            next_y_mean, next_y_sigma = self._observe(next_x_quantized)
+
+            # Sample theta uniformly over its discrete allowed values.
+            min_theta = int(self.data_generator.min_theta)
+            max_theta = int(self.data_generator.max_theta)
+
+            theta_raw = torch.randint(
+                low=min_theta,
+                high=max_theta + 1,
+                size=(1,),
+                generator=generator,
+            ).to(dtype=temp_raw.dtype)
+
+            raw_x = torch.stack(
+                [temp_raw, theta_raw],
+                dim=-1,
+            )
+
+            next_x = self.data_generator.transform_inputs(raw_x)
+
+            next_y_mean, next_y_sigma = self._observe(next_x)
+
             self.last_scores = torch.empty(0)
             self.last_sampling_method = "md"
             self.last_simulation_cost = float(
@@ -715,7 +747,8 @@ class ActiveLearner:
             self.last_acquisition_raw_value = float("nan")
             self.last_acquisition_score = float("nan")
             self.last_n_candidates_evaluated = 0
-            return next_x_quantized, next_y_mean, next_y_sigma
+
+            return next_x, next_y_mean, next_y_sigma
         
         # Random action with multiple simulation methods
         if self.config.acquisition_function == "random_batch":
@@ -723,7 +756,7 @@ class ActiveLearner:
                 self.cand_actions,
                 seed=self._candidate_seed,
             )
-
+ 
             self.last_scores = result["scores"]
             self.last_sampling_method = result["method"]
             self.last_simulation_cost = float(result["cost"])
@@ -735,6 +768,7 @@ class ActiveLearner:
 
             next_x = result["x_batch"]
             next_y_mean, next_y_sigma = self._observe(next_x)
+
             return next_x, next_y_mean, next_y_sigma
 
         # Random whole nested-sampling slice
