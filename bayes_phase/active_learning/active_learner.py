@@ -11,8 +11,6 @@ from jsonlines import jsonlines
 from tqdm import tqdm
 
 from bayes_phase.acquisition import EIG, DistanceDispersion, diagram_generation
-from bayes_phase.acquisition.cell_cost import PeakCellCostEntropy
-from bayes_phase.acquisition.peak_cell_entropy import PeakCellEntropy
 from bayes_phase.active_learning import callbacks
 from bayes_phase.active_learning.config import ActiveLearnerConfig
 from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator, BayesODataGenerator
@@ -322,8 +320,6 @@ class ActiveLearner:
             return torch.empty((0, 2)), []
 
         batch_acqs = {
-            "peak_cell_cost",
-            "peak_cell_batch",
             "random_batch",
             "random_slice",
         }
@@ -825,25 +821,6 @@ class ActiveLearner:
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
         
-        # Peak-cell entropy
-        elif self.config.acquisition_function == "peak_cell":
-            pce = PeakCellEntropy(self)
-            scores = pce(self.cand_x)
-            self.last_scores = scores.detach().cpu()
-            best_idx = torch.argmax(scores)
-            next_x = self.cand_x[best_idx : best_idx + 1]
-
-            best_score = scores[best_idx].detach().cpu().item()
-            self.last_sampling_method = "md"
-            self.last_simulation_cost = float(self.config.sampling_methods[0].get("cost", 1.0))
-            self.last_acquisition_raw_value = float(best_score)
-            self.last_acquisition_score = float(best_score)
-            self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
-
-            next_y_mean, next_y_sigma = self._observe(next_x)
-            return next_x, next_y_mean, next_y_sigma
-
-
         # Dispersion acquisition
         elif self.config.acquisition_function == "dispersion":
             dd = DistanceDispersion(
@@ -862,22 +839,6 @@ class ActiveLearner:
             self.last_acquisition_score = float(best_score)
             self.last_n_candidates_evaluated = int(self.cand_x.shape[0])
 
-            next_y_mean, next_y_sigma = self._observe(next_x)
-            return next_x, next_y_mean, next_y_sigma
-
-        # Cost-aware peak-cell entropy
-        elif self.config.acquisition_function in {"peak_cell_cost", "peak_cell_batch"}:
-            pcce = PeakCellCostEntropy(self)
-            result = pcce(self.cand_actions)
-                
-            self.last_scores = result["scores"].detach().cpu()
-            self.last_sampling_method = result["method"]
-            self.last_simulation_cost = float(result["cost"])
-            self.last_acquisition_raw_value = float(result["raw_value"])
-            self.last_acquisition_score = float(result["score"])
-            self.last_n_candidates_evaluated = int(result["n_candidates_evaluated"])
-
-            next_x = result["x_batch"]
             next_y_mean, next_y_sigma = self._observe(next_x)
             return next_x, next_y_mean, next_y_sigma
 
@@ -973,8 +934,6 @@ class ActiveLearner:
 
     def _validate_sampling_methods(self):
         allowed_batch_acqs = {
-            "peak_cell_cost",
-            "peak_cell_batch",
             "random_batch",
             "random_slice",
         }
@@ -985,8 +944,7 @@ class ActiveLearner:
         ):
             raise ValueError(
                 "Multiple sampling methods require a batch/action-aware "
-                "acquisition function: peak_cell_cost, peak_cell_batch, "
-                "random_batch, or random_slice."
+                "acquisition function: random_batch or random_slice."
             )
 
         for method in self.config.sampling_methods:

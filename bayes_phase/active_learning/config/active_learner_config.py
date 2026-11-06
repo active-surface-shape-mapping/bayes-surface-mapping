@@ -113,9 +113,6 @@ class AcquisitionFunction(StrEnum):
     RANDOM = "random"
     EIG = "eig"
     SOBOL = "sobol"
-    CELL = "peak_cell"
-    CELL_COST = "peak_cell_cost"
-    CELL_BATCH = "peak_cell_batch"
     RANDOM_BATCH = "random_batch"
     RANDOM_SLICE = "random_slice"
     DISPERSION = "dispersion"
@@ -196,7 +193,7 @@ class ActiveLearnerConfig:
     base_kernel: BaseKernel = BaseKernel.MATERN52
     base_kernel_kwargs: dict[str, Any] = field(default_factory=dict)
     feature_finder: FeatureFinder = FeatureFinder.SLICE_PEAKS
-    acquisition_function: AcquisitionFunction = AcquisitionFunction.CELL
+    acquisition_function: AcquisitionFunction = AcquisitionFunction.DISPERSION
     acquisition_n_fantasies: int = 10
     acquisition_fantasy_quadrature: bool = False # Use quadrature instead of Monte Carlo fantasies in the acquisition function.
     acquisition_fantasy_quadrature_points: int = 10
