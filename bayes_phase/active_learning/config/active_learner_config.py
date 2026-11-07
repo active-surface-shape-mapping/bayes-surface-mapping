@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 
 
 
@@ -136,7 +136,6 @@ class PeakHeightRule(StrEnum):
 
 class DatasetType(StrEnum):
     SIMULATED = "simulated"
-    SYNTHETIC = "synthetic"
 
 class DistanceMetric(StrEnum):
     GOSPA = "gospa"
@@ -171,17 +170,6 @@ class ActiveLearnerConfig:
     init_dataset_paths: list[str] = field(default_factory=default_paths)
     sampling_dataset_paths: list[str] = field(default_factory=default_paths)
     ground_truth_dataset_paths: list[str] = field(default_factory=default_paths)
-    # For synthetic data (BayesO Benchmark functions):
-    target_name: Optional[str] = "Branin"  # Benchmark target name
-    target_scale: float = 1.0  # Multiplicative scale for output values
-    target_shift: float = 0.0  # Additive translation for output values
-    target_sampling_n_replicates: int = 3  # Number of replicates per evaluation
-    target_sampling_noise: float = 0.0  # Noise scale (default is lognormal multiplicative noise)
-    target_init_n_replicates: int = 3
-    target_init_noise: float = 0.0
-    target_ground_truth_n_replicates: int = 3
-    target_ground_truth_noise: float = 0.0
-    target_kwargs: dict = field(default_factory=dict)  # Additional kwargs forwarded to target
 
     init_data_strategy: InitDataStrategy = InitDataStrategy.SOBOL
     cand_data_strategy: CandDataStrategy = CandDataStrategy.SOBOL

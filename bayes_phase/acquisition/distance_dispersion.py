@@ -16,8 +16,6 @@ if TYPE_CHECKING:
     from bayes_phase.active_learning import ActiveLearner
 
 
-# TODO: Try common random numbers for pre vs. post-conditioning draws. 
-
 @dataclass
 class DispersionGridSpec:
     """Full evaluation grid and row indices for discrete theta slices.

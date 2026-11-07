@@ -1,8 +1,8 @@
 # Overview
-This is the repo for the Bayes-phase project (work-in-progress).
+This is the repo for the Bayes-mapping project.
 # Installation
 ```sh
-git clone git@github.com:Bobby-Huggins/bayes-phase.git
+git clone git@github.com: active-surface-shape-mapping/bayes-mapping.git
 cd bayes-phase
 uv sync
 uv pip install -e .

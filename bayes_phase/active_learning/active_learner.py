@@ -13,7 +13,7 @@ from tqdm import tqdm
 from bayes_phase.acquisition import EIG, DistanceDispersion, diagram_generation
 from bayes_phase.active_learning import callbacks
 from bayes_phase.active_learning.config import ActiveLearnerConfig
-from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator, BayesODataGenerator
+from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
 from bayes_phase.models import make_prior, means
 from bayes_phase.models.standard_gp import StandardExactGP
 
@@ -151,31 +151,6 @@ class ActiveLearner:
             data_generator = SimulatedDataGenerator(self.config.sampling_dataset_paths)
             ground_truth_data_generator = SimulatedDataGenerator(
                 self.config.ground_truth_dataset_paths
-            )
-        elif self.config.dataset_type == "synthetic":
-            init_data_generator = BayesODataGenerator(
-                self.config.target_name,
-                self.config.target_scale,
-                self.config.target_shift,
-                self.config.target_init_n_replicates,
-                self.config.target_init_noise,
-                **self.config.target_kwargs,
-            )
-            data_generator = BayesODataGenerator(
-                self.config.target_name,
-                self.config.target_scale,
-                self.config.target_shift,
-                self.config.target_sampling_n_replicates,
-                self.config.target_sampling_noise,
-                **self.config.target_kwargs,
-            )
-            ground_truth_data_generator = BayesODataGenerator(
-                self.config.target_name,
-                self.config.target_scale,
-                self.config.target_shift,
-                self.config.target_ground_truth_n_replicates,
-                self.config.target_ground_truth_noise,
-                **self.config.target_kwargs,
             )
         else:
             raise NotImplementedError(f"Unrecognized dataset_type {self.config.dataset_type}")
@@ -346,7 +321,6 @@ class ActiveLearner:
         seed: int,
     ) -> Float[torch.Tensor, "n 2"]:
         """Generate point candidates in normalized coordinates."""
-        # TODO: Work on marginal Sobol strategy
         if self.config.cand_data_strategy == "sobol":
             # Generate Sobol sequence on unit square
             engine = torch.quasirandom.SobolEngine(
