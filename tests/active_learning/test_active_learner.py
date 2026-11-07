@@ -52,6 +52,62 @@ def assert_valid_points(learner, points):
     torch.testing.assert_close(theta, theta.round(), atol=1e-5, rtol=0)
 
 
+def test_nested_sampling_updates_whole_slices_and_stops_when_exhausted(config):
+    """Each action adds one new theta slice, charges once, and never repeats it."""
+    config.init_data_strategy = "ns_slice"
+    config.acquisition_function = "random_slice"
+    config.n_iters = 5  # Five theta levels: one initializes, four remain to acquire.
+    config.sampling_methods = [{
+        "name": "nested_sampling", "cost": 7.0,
+        "temperature_spacing_K_nested_sampling": 100.0,
+    }]
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(config.global_seed)
+        learner = ActiveLearner(config)
+        initial_raw = learner.data_generator.untransform_inputs(learner.train_x)
+        assert initial_raw.shape == (5, 2)
+        seen_thetas = {initial_raw[0, 1].item()}
+        previous_x, previous_y = learner.train_x.clone(), learner.train_y_orig.clone()
+
+        def check_slice(al):
+            nonlocal previous_x, previous_y
+            raw = al.data_generator.untransform_inputs(al.next_x)
+            assert raw.shape == (5, 2)
+            torch.testing.assert_close(raw[:, 0], torch.arange(100., 501., 100.))
+            assert raw[:, 1].unique().numel() == 1
+            theta = raw[0, 1].item()
+            assert theta not in seen_thetas, "A completed slice was sampled twice"
+            seen_thetas.add(theta)
+            # A batch costs one action, while all five measurements enter the GP.
+            assert al.last_sampling_method == "nested_sampling"
+            assert al.last_simulation_cost == 7.0
+            assert al.simulation_cost_total == 7.0 * (len(seen_thetas) - 1)
+            assert al.n_points_sampled_total == 5 * len(seen_thetas)
+            assert_valid_points(al, al.train_x)
+            torch.testing.assert_close(al.train_x[:-5], previous_x)
+            torch.testing.assert_close(al.train_y_orig[:-5], previous_y)
+            torch.testing.assert_close(al.train_x[-5:], al.next_x)
+            torch.testing.assert_close(al.train_y_orig[-5:], al.next_y_orig)
+            expected_y, _ = al._observe(al.next_x)
+            torch.testing.assert_close(al.next_y_orig, expected_y)
+            torch.testing.assert_close(al.model.train_inputs[0], al.train_x)
+            torch.testing.assert_close(al.model.train_targets, al.train_y.ravel())
+            assert torch.isfinite(al.train_y).all()
+            assert len(al.cand_actions) == 6 - len(seen_thetas)
+            previous_x, previous_y = al.train_x.clone(), al.train_y_orig.clone()
+
+        learner.callbacks.append(check_slice)
+        # The fifth requested action must stop rather than repeat a completed slice.
+        with pytest.raises(RuntimeError, match="No sampling actions remain"):
+            learner.optimize()
+    assert seen_thetas == {1., 2., 3., 4., 5.}
+    assert learner.train_x.shape == (25, 2)
+    assert learner.train_x.unique(dim=0).shape == (25, 2)
+    torch.testing.assert_close(learner.train_x, previous_x)
+    torch.testing.assert_close(learner.train_y_orig, previous_y)
+    assert learner.simulation_cost_total == 28.0
+
+
 # Run all eight combinations: four acquisitions times two candidate strategies.
 # Random and Sobol acquisitions draw directly and ignore the candidate strategy.
 @pytest.mark.parametrize("acquisition", ACQUISITIONS)

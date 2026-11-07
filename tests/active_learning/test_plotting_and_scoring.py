@@ -22,6 +22,8 @@ from bayes_phase.active_learning.callbacks.score_model_plot import (
     _generate_grid,
 )
 from bayes_phase.acquisition.diagram_generation.base_diagram_generator import DiagramOutput
+from bayes_phase.acquisition.diagram_generation.find_peaks_diagram_generator import FindPeaksDiagramGenerator
+from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
 from bayes_phase.data_io import SimulatedDataGenerator
 
 
@@ -63,6 +65,53 @@ def assert_pdf(path):
     assert path.stat().st_size > 100, f"Empty plot: {path}"
     with path.open("rb") as stream:
         assert stream.read(5) == b"%PDF-", f"Invalid PDF: {path}"
+
+
+@pytest.mark.parametrize("extrema", ["peaks", "valleys"])
+@pytest.mark.parametrize("options, expected_indices", [
+    ({}, [1, 4, 7]),
+    ({"peak_threshold": 0.3}, [1, 7]),
+    ({"peak_height_rule": "above_median"}, [1, 7]),
+    ({"max_n_peaks": 1}, [7]),
+    ({"peak_height_rule": "above_median", "max_n_peaks": 1}, [7]),
+    ({"max_n_peaks": 2}, [7, 1]),
+])
+def test_peak_rules_propagate_to_diagram_boundaries(learner, tmp_path, extrema, options, expected_indices):
+    """Peak filters must select the same features in arrays and physical diagrams."""
+    # Three local maxima: a tall peak, a small peak below the median, and the
+    # tallest peak. Negating the curve gives equivalent valley test cases.
+    signal = torch.tensor([0., 5., 0., -4., -3., -4., 0., 6., 0.])
+    if extrema == "valleys":
+        signal = -signal
+    # Positive values allow logarithmic extraction; use linear values here so
+    # the specified relative-prominence threshold has an exact interpretation.
+    signal = signal + 10
+    expected = torch.tensor(expected_indices)
+    for values in [signal.numpy(), signal.clone().requires_grad_()]:
+        actual = find_slice_peak_idxs(values, extrema=extrema, **options)
+        torch.testing.assert_close(torch.as_tensor(actual), expected)
+    # Give each theta slice a different scale and offset. Relative prominence
+    # and median filtering should preserve the same selected temperatures.
+    temperatures = torch.linspace(100, 500, 9)
+    path = tmp_path / "multiple_features.arrow"
+    pl.DataFrame({"temp_in_K": temperatures.tolist(), **{
+        f"θ_{theta}": (signal * theta + theta).tolist() for theta in range(1, 4)
+    }}).write_ipc(path)
+    data = SimulatedDataGenerator([str(path)])
+    diagram_generator = FindPeaksDiagramGenerator(
+        learner, n_temp_grid=9, extrema=extrema, **options,
+    )
+    diagram = diagram_generator.diagrams(
+        1, data_generator=data, use_log_transform=False,
+    )[0]
+    # The current DiagramOutput stores detected features in .peaks even when
+    # extrema='valleys'. Check coordinates, not only the number of features.
+    physical = data.untransform_inputs(diagram.peaks)
+    expected_points = torch.tensor([
+        [temperatures[index].item(), float(theta)]
+        for theta in range(1, 4) for index in expected_indices
+    ])
+    torch.testing.assert_close(physical, expected_points)
 
 
 def test_al_callbacks_save_consistent_outputs(learner):
