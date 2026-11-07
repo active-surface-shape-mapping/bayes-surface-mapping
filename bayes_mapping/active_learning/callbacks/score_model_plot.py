@@ -13,10 +13,10 @@ import torch
 from matplotlib.axes import Axes
 from matplotlib.ticker import MaxNLocator
 
-from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
+from bayes_mapping.acquisition.diagram_generation.base_diagram_generator import (
     DiagramOutput,
 )
-from bayes_phase.utils import eval_context
+from bayes_mapping.utils import eval_context
 
 from .plot_mst import _plot_mst_diagrams
 

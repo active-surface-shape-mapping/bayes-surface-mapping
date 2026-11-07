@@ -4,10 +4,10 @@ from matplotlib.axes import Axes
 from pathlib import Path
 from typing import Iterator, Optional
 
-from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
+from bayes_mapping.acquisition.diagram_generation.base_diagram_generator import (
     DiagramOutput,
 )
-from bayes_phase.utils import eval_context
+from bayes_mapping.utils import eval_context
 
 
 def plot_diagrams(

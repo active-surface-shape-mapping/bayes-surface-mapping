@@ -4,7 +4,7 @@ from jaxtyping import Float
 from typing import NamedTuple, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from bayes_phase.active_learning import ActiveLearner
+    from bayes_mapping.active_learning import ActiveLearner
 
 
 class DiagramOutput(NamedTuple):

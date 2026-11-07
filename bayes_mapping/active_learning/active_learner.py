@@ -10,12 +10,12 @@ from jaxtyping import Float
 from jsonlines import jsonlines
 from tqdm import tqdm
 
-from bayes_phase.acquisition import EIG, DistanceDispersion, diagram_generation
-from bayes_phase.active_learning import callbacks
-from bayes_phase.active_learning.config import ActiveLearnerConfig
-from bayes_phase.data_io import BaseDataGenerator, SimulatedDataGenerator
-from bayes_phase.models import make_prior, means
-from bayes_phase.models.standard_gp import StandardExactGP
+from bayes_mapping.acquisition import EIG, DistanceDispersion, diagram_generation
+from bayes_mapping.active_learning import callbacks
+from bayes_mapping.active_learning.config import ActiveLearnerConfig
+from bayes_mapping.data_io import BaseDataGenerator, SimulatedDataGenerator
+from bayes_mapping.models import make_prior, means
+from bayes_mapping.models.standard_gp import StandardExactGP
 
 
 class ActiveLearner:

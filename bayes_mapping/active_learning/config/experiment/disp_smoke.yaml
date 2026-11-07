@@ -2,7 +2,10 @@ defaults:
   - disp_base
 distance_metric: GOSPA
 dispersion_metric: RAND_PAIR
+n_iters: 3
+acquisition_n_mc_samples: 50
 distance_metric_kwargs:
   cutoff: 0.2
   p: 1
   alpha: 2
+iter_n_candidates: 5

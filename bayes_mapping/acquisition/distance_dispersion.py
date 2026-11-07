@@ -8,12 +8,12 @@ from jaxtyping import Float
 from scipy.special import roots_hermitenorm
 from tqdm import tqdm
 
-from bayes_phase import acquisition
-from bayes_phase.acquisition import spatial_statistics
-from bayes_phase.utils import eval_context
+from bayes_mapping import acquisition
+from bayes_mapping.acquisition import spatial_statistics
+from bayes_mapping.utils import eval_context
 
 if TYPE_CHECKING:
-    from bayes_phase.active_learning import ActiveLearner
+    from bayes_mapping.active_learning import ActiveLearner
 
 
 @dataclass

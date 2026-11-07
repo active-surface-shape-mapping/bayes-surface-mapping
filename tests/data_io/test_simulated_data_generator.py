@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from bayes_phase.data_io import SimulatedDataGenerator
+from bayes_mapping.data_io import SimulatedDataGenerator
 
 
 def test_simulated_data_generator_init():

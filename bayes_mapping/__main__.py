@@ -6,7 +6,7 @@ import hydra
 import random
 from datetime import datetime
 
-from bayes_phase.active_learning.active_learner import (
+from bayes_mapping.active_learning.active_learner import (
     ActiveLearner,
     ActiveLearnerConfig,
 )

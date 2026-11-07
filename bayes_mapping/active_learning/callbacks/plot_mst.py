@@ -8,10 +8,10 @@ from typing import Iterator, Optional
 from scipy.interpolate import make_splprep, splev
 
 
-from bayes_phase.acquisition.diagram_generation.base_diagram_generator import (
+from bayes_mapping.acquisition.diagram_generation.base_diagram_generator import (
     DiagramOutput,
 )
-from bayes_phase.utils import eval_context
+from bayes_mapping.utils import eval_context
 
 
 def _create_mst(x_norm: torch.Tensor, n_theta: int, learner: "ActiveLearner") -> torch.Tensor:

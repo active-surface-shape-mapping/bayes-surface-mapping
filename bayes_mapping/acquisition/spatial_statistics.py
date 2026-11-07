@@ -7,7 +7,7 @@ import numpy.typing as npt
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
+from bayes_mapping.acquisition.peak_finding import find_slice_peak_idxs
 
 type FeatureFinder = Callable[..., npt.NDArray[np.intp]]
 type MetricLike = str | Enum

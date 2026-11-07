@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import polars as pl
-from bayes_phase.data_io import BaseDataGenerator, read_data
+from bayes_mapping.data_io import BaseDataGenerator, read_data
 
 
 class SimulatedDataGenerator(BaseDataGenerator):

@@ -4,10 +4,10 @@ from typing import Literal
 import matplotlib.pyplot as plt
 import torch
 
-from bayes_phase.acquisition.diagram_generation import BaseDiagramGenerator
-from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
-from bayes_phase.data_io.base_data_generator import BaseDataGenerator
-from bayes_phase.utils import eval_context
+from bayes_mapping.acquisition.diagram_generation import BaseDiagramGenerator
+from bayes_mapping.acquisition.peak_finding import find_slice_peak_idxs
+from bayes_mapping.data_io.base_data_generator import BaseDataGenerator
+from bayes_mapping.utils import eval_context
 
 from .base_diagram_generator import DiagramOutput
 

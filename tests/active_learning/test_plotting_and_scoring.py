@@ -13,18 +13,18 @@ import polars as pl
 import pytest
 import torch
 
-from bayes_phase.active_learning.active_learner import ActiveLearner
-from bayes_phase.active_learning.config import ActiveLearnerConfig
-from bayes_phase.active_learning.callbacks.plot import plot_diagrams
-from bayes_phase.active_learning.callbacks.score_model_plot import (
+from bayes_mapping.active_learning.active_learner import ActiveLearner
+from bayes_mapping.active_learning.config import ActiveLearnerConfig
+from bayes_mapping.active_learning.callbacks.plot import plot_diagrams
+from bayes_mapping.active_learning.callbacks.score_model_plot import (
     _assign_ridge_points_to_grid,
     _calc_score,
     _generate_grid,
 )
-from bayes_phase.acquisition.diagram_generation.base_diagram_generator import DiagramOutput
-from bayes_phase.acquisition.diagram_generation.find_peaks_diagram_generator import FindPeaksDiagramGenerator
-from bayes_phase.acquisition.peak_finding import find_slice_peak_idxs
-from bayes_phase.data_io import SimulatedDataGenerator
+from bayes_mapping.acquisition.diagram_generation.base_diagram_generator import DiagramOutput
+from bayes_mapping.acquisition.diagram_generation.find_peaks_diagram_generator import FindPeaksDiagramGenerator
+from bayes_mapping.acquisition.peak_finding import find_slice_peak_idxs
+from bayes_mapping.data_io import SimulatedDataGenerator
 
 
 @pytest.fixture

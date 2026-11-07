@@ -3,10 +3,10 @@ from typing import TYPE_CHECKING
 import torch
 from jaxtyping import Float
 
-from bayes_phase.utils import eval_context
+from bayes_mapping.utils import eval_context
 
 if TYPE_CHECKING:
-    from bayes_phase.active_learning import ActiveLearner
+    from bayes_mapping.active_learning import ActiveLearner
 
 
 class EIG:

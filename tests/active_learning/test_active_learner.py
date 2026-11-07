@@ -6,9 +6,9 @@ import polars as pl
 import pytest
 import torch
 
-from bayes_phase.active_learning.active_learner import ActiveLearner
-from bayes_phase.active_learning.config import ActiveLearnerConfig
-from bayes_phase.utils import eval_context
+from bayes_mapping.active_learning.active_learner import ActiveLearner
+from bayes_mapping.active_learning.config import ActiveLearnerConfig
+from bayes_mapping.utils import eval_context
 
 
 ACQUISITIONS = ["random", "sobol", "eig", "dispersion"]

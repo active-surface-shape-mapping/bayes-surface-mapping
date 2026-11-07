@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bayes_phase.active_learning.score_evaluation import run_comparison as comparison
+from bayes_mapping.active_learning.score_evaluation import run_comparison as comparison
 
 
 @pytest.fixture

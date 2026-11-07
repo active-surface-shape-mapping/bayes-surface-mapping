@@ -4,7 +4,7 @@ import gpytorch
 import pytest
 import torch
 
-from bayes_phase.models import StandardExactGP
+from bayes_mapping.models import StandardExactGP
 
 
 @pytest.mark.parametrize("kernel_name", ["rbf", "matern52"])
