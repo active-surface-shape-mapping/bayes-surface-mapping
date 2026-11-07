@@ -10,9 +10,9 @@ uv pip install -e .
 # Usage
 To run using the [hydra](https://hydra.cc/) experiment config library, e.g.:
 ```sh
-uv run python -m bayes_phase 'experiment=test_eig'
+uv run python -m bayes_phase 'experiment=disp_eig'
 ```
 To run multiple experiments at once, e.g.:
 ```sh
-uv run python -m bayes_phase -m 'experiment=test_eig,test_mi_ep' 'experiment.global_seed=range(0,5)'
+uv run python -m bayes_phase -m 'experiment=disp_eig,disp_random' 'experiment.global_seed=range(0,5)'
 ```
