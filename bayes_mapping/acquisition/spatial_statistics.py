@@ -329,11 +329,11 @@ def _gospa_distance(
         features_b[:, None],
         p=2,
     )
-    pairwise = torch.clamp(pairwise, max=cutoff)
+    pairwise_cost = torch.clamp(pairwise, max=cutoff).pow(p)
 
-    # Solve optimal assignment.
-    row_ind, col_ind = linear_sum_assignment(pairwise.detach().cpu().numpy())
-    localization_cost = pairwise[row_ind, col_ind].pow(p).sum()
+    # Optimize the powered costs from the GOSPA definition, not raw distances.
+    row_ind, col_ind = linear_sum_assignment(pairwise_cost.detach().cpu().numpy())
+    localization_cost = pairwise_cost[row_ind, col_ind].sum()
 
     # Cardinality penalty.
     mismatch = abs(n_a - n_b)
