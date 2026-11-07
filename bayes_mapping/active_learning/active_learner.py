@@ -165,7 +165,7 @@ class ActiveLearner:
         """
         if self.config.init_data_strategy == "sobol":
             init_x = self._sobol_engine.draw(self.config.init_n_points)
-            init_x_quantized = self._quantize_theta(init_x, equal_bins=True)
+            init_x_quantized = self._quantize_theta(init_x)
             init_y_mean, init_y_sigma = self._observe(
                 init_x_quantized,
                 data_generator=self.init_data_generator,
@@ -318,7 +318,7 @@ class ActiveLearner:
                 dimension=2, scramble=True, seed=seed
             )
             init_x = engine.draw(n_candidates)
-            init_x_quantized = self._quantize_theta(init_x, equal_bins=True)
+            init_x_quantized = self._quantize_theta(init_x)
             return init_x_quantized
 
         if self.config.cand_data_strategy == "random":
@@ -756,7 +756,7 @@ class ActiveLearner:
         # Sobol
         if self.config.acquisition_function == "sobol":
             next_x = self._sobol_engine.draw(1)
-            next_x_quantized = self._quantize_theta(next_x, equal_bins=True)
+            next_x_quantized = self._quantize_theta(next_x)
             next_y_mean, next_y_sigma = self._observe(next_x_quantized)
             self.last_scores = torch.empty(0)
             self.last_sampling_method = "md"
@@ -975,7 +975,7 @@ class ActiveLearner:
         return (y_transformed * std) + mean
 
     def _quantize_theta(
-        self, u: Float[torch.Tensor, "n 2"], *, equal_bins: bool = False
+        self, u: Float[torch.Tensor, "n 2"]
     ) -> Float[torch.Tensor, "n 2"]:
         """Take unit square input and quantize its theta values.
 
@@ -983,9 +983,6 @@ class ActiveLearner:
         ----------
         u
             The input points in [0,1]x[0,1].
-        equal_bins
-            Use equal-width floor bins for Sobol inputs so every integer theta
-            level has equal probability. Otherwise round in physical coordinates.
 
         Returns
         -------
@@ -994,14 +991,7 @@ class ActiveLearner:
             theta-values in the original domain are integers.
         """
         x = self.data_generator.untransform_inputs(u)
-        if equal_bins:
-            min_theta = int(self.data_generator.min_theta)
-            n_theta = int(self.data_generator.max_theta) - min_theta + 1
-            # Include both endpoint levels; map an input of 1 to the final bin.
-            theta_idx = (u[:, 1] * n_theta).floor().clamp(0, n_theta - 1)
-            x[:, 1] = min_theta + theta_idx
-        else:
-            x[:, 1] = x[:, 1].round()
+        x[:, 1] = x[:, 1].round()
         u_quantized = self.data_generator.transform_inputs(x)
         return u_quantized
 
