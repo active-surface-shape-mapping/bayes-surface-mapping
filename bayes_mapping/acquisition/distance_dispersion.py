@@ -40,9 +40,10 @@ class DistanceDispersion:
     Feature dispersion is estimated from posterior function samples over a
     local window of discrete theta slices. For each candidate, possible 
     observations are generated either by Monte Carlo sampling or
-    Gauss-Hermite quadrature. The GP is conditioned on each fantasy value, and
-    the acquisition score is the baseline dispersion minus the expected
-    posterior dispersion.
+    Gauss-Hermite quadrature. Gaussian conditioning updates the mean for each
+    fantasy value and shares one covariance factor per candidate. Common normal
+    draws and sample pairings couple baseline and conditioned estimates.
+    The score is baseline dispersion minus expected posterior dispersion.
 
     Parameters
     ----------
@@ -137,6 +138,9 @@ class DistanceDispersion:
 
         self._validate_config()
         self.grid_spec = self._build_eval_grid()
+        self._base_sample_cache: dict[tuple, torch.Tensor] = {}
+        # Reuse the same sample pairing for every baseline and conditioned estimate.
+        self._pairing_state = generator.get_state().clone() if generator is not None else None
 
     def _validate_config(self) -> None:
         """Validate acquisition parameters that determine sample dimensions."""
@@ -201,14 +205,26 @@ class DistanceDispersion:
             theta_values_raw
         )
 
-        device = x_eval.device
-        dtype = x_eval.dtype
-
         f_samples = self._sample_functions_from_model(
             model=model,
             n_samples=self.n_mc_samples,
             x_eval=x_eval,
+            base_samples=self._base_normal_samples_for_region(theta_values_raw),
         )
+
+        return self._calculate_feature_dispersion_from_samples(
+            f_samples, x_eval, idxs_by_theta, theta_values_raw
+        )
+
+    def _calculate_feature_dispersion_from_samples(
+        self,
+        f_samples: torch.Tensor,
+        x_eval: torch.Tensor,
+        idxs_by_theta: dict[int, slice],
+        theta_values_raw: list[int],
+    ) -> torch.Tensor:
+        """Estimate slice dispersion from already sampled latent functions."""
+        device, dtype = x_eval.device, x_eval.dtype
 
         if f_samples.ndim != 2:
             raise ValueError(
@@ -244,7 +260,7 @@ class DistanceDispersion:
                 feature_finder_kwargs=self.feature_finder_kwargs,
                 distance_metric_kwargs=self.distance_metric_kwargs,
                 dispersion_metric_kwargs=self.dispersion_metric_kwargs,
-                generator=self.generator,
+                generator=self._fixed_pairing_generator(),
             )
 
             slice_dispersions.append(
@@ -295,6 +311,9 @@ class DistanceDispersion:
             dtype=dtype,
         )
 
+        # Start a fresh common-draw bank for this acquisition evaluation.
+        self._base_sample_cache.clear()
+
         # Baseline dispersion depends on theta but not candidate temperature.
         baseline_dispersion_by_theta: dict[int, torch.Tensor] = {}
 
@@ -330,74 +349,18 @@ class DistanceDispersion:
                 candidate_theta_raw
             ]
 
-            if self.fantasy_quadrature:
-                fantasy_y, weights = self._sample_points_quadrature(
-                    model=self.learner.model,
-                    x_new=x_cand,
-                    n_points=self.n_fantasy_quadrature_points,
+            x_eval, idxs_by_theta = self._build_local_eval_grid(local_theta_values)
+            weights, means, centered = self._conditioned_draws(
+                x_cand=x_cand, x_eval=x_eval, theta_values_raw=local_theta_values,
+            )
+            post_dispersions = [
+                self._calculate_feature_dispersion_from_samples(
+                    mean.unsqueeze(0) + centered,
+                    x_eval, idxs_by_theta, local_theta_values,
                 )
-
-                post_dispersions = []
-
-                for y_fant in fantasy_y:
-                    # GPyTorch expects an explicit observation dimension.
-                    fantasy_model = (
-                        self.learner.model.get_fantasy_model(
-                            x_cand,
-                            y_fant.reshape(1),
-                        )
-                    )
-                    fantasy_model.eval()
-
-                    post_dispersion = (
-                        self._calculate_feature_dispersion_from_model(
-                            model=fantasy_model,
-                            theta_values_raw=local_theta_values,
-                        )
-                    )
-
-                    post_dispersions.append(
-                        post_dispersion
-                    )
-
-                expected_post_dispersion = torch.dot(
-                    weights,
-                    torch.stack(post_dispersions),
-                )
-
-            else:
-                fantasy_y = self._sample_fantasized_observations(
-                    model=self.learner.model,
-                    x_new=x_cand,
-                    n_fantasies=self.n_fantasies,
-                )
-
-                post_dispersions = []
-
-                for y_fant in fantasy_y:
-                    # GPyTorch expects an explicit observation dimension.
-                    fantasy_model = (
-                        self.learner.model.get_fantasy_model(
-                            x_cand,
-                            y_fant.reshape(1),
-                        )
-                    )
-                    fantasy_model.eval()
-
-                    post_dispersion = (
-                        self._calculate_feature_dispersion_from_model(
-                            model=fantasy_model,
-                            theta_values_raw=local_theta_values,
-                        )
-                    )
-
-                    post_dispersions.append(
-                        post_dispersion
-                    )
-
-                expected_post_dispersion = torch.stack(
-                    post_dispersions
-                ).mean()
+                for mean in means
+            ]
+            expected_post_dispersion = torch.dot(weights, torch.stack(post_dispersions))
 
             scores[i] = (
                 baseline_dispersion
@@ -526,6 +489,124 @@ class DistanceDispersion:
             torch.vstack(x_slices),
             local_idxs_by_theta,
         )
+    def _base_normal_samples(
+        self, *, n_samples: int, dimension: int, base_grid_key: str,
+        device: torch.device, dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Cache standard normals so comparisons share the same random draws."""
+        key = (base_grid_key, n_samples, dimension, device, dtype)
+        if key not in self._base_sample_cache:
+            self._base_sample_cache[key] = torch.randn(
+                n_samples, dimension, device=device, dtype=dtype,
+                generator=self.generator,
+            )
+        return self._base_sample_cache[key]
+
+    def _base_normal_samples_for_region(
+        self, theta_values_raw: list[int],
+    ) -> torch.Tensor:
+        """Select local columns from one shared full-grid normal draw bank."""
+        full_grid = self.grid_spec.x_eval
+        eps = self._base_normal_samples(
+            n_samples=self.n_mc_samples, dimension=full_grid.shape[0],
+            base_grid_key="slice", device=full_grid.device, dtype=full_grid.dtype,
+        )
+        indices = torch.cat([
+            torch.arange(self.grid_spec.idxs_by_theta[theta].start,
+                         self.grid_spec.idxs_by_theta[theta].stop,
+                         device=full_grid.device)
+            for theta in theta_values_raw
+        ])
+        return eps.index_select(1, indices)
+
+    def _fixed_pairing_generator(self) -> torch.Generator | None:
+        """Replay the same random-pair permutation without consuming draw randomness."""
+        if self.generator is None:
+            return None
+        generator = torch.Generator(device=self.generator.device)
+        generator.set_state(self._pairing_state)
+        return generator
+
+    def _conditioned_draws(
+        self, *, x_cand: torch.Tensor, x_eval: torch.Tensor,
+        theta_values_raw: list[int],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return fantasy weights, means, and shared centered function draws."""
+        if self.fantasy_quadrature:
+            fantasy_y, weights = self._sample_points_quadrature(
+                model=self.learner.model, x_new=x_cand,
+                n_points=self.n_fantasy_quadrature_points,
+            )
+        else:
+            fantasy_y = self._sample_fantasized_observations(
+                model=self.learner.model, x_new=x_cand, n_fantasies=self.n_fantasies,
+            )
+            weights = torch.full_like(fantasy_y, 1.0 / fantasy_y.numel())
+        means, factor = self._conditioned_sample_components(
+            x_cand=x_cand, fantasy_y=fantasy_y, x_eval=x_eval,
+        )
+        # The covariance does not depend on fantasy_y: factor and multiply once.
+        eps = self._base_normal_samples_for_region(theta_values_raw)
+        centered = eps @ factor.T
+        return weights, means, centered
+
+    @torch.no_grad()
+    def _conditioned_sample_components(
+        self,
+        *,
+        x_cand: Float[torch.Tensor, "1 d"],
+        fantasy_y: torch.Tensor,
+        x_eval: torch.Tensor,
+    ) -> tuple[Float[torch.Tensor, "n_fantasies n_eval"], torch.Tensor]:
+        """Return conditioned means and their shared latent covariance factor."""
+        if x_eval.ndim != 2 or x_eval.shape[0] == 0:
+            raise ValueError("x_eval must contain at least one evaluation point.")
+        if x_cand.ndim != 2 or x_cand.shape != (1, x_eval.shape[1]):
+            raise ValueError("x_cand must contain exactly one candidate point.")
+        if fantasy_y.numel() == 0:
+            raise ValueError("At least one fantasy observation is required.")
+
+        model = self.learner.model
+        x_joint = torch.cat([x_eval, x_cand], dim=0)
+        with eval_context(model):
+            latent_joint = self._get_posterior(model, x_joint, include_noise=False)
+            noisy_candidate = self._get_posterior(model, x_cand, include_noise=True)
+
+        n_eval = x_eval.shape[0]
+        joint_mean = latent_joint.mean.reshape(-1)
+        joint_cov = latent_joint.covariance_matrix
+        if joint_mean.numel() != n_eval + 1:
+            raise RuntimeError(
+                "Expected one scalar GP output per evaluation point and candidate."
+            )
+
+        mean_eval = joint_mean[:n_eval]
+        mean_cand = joint_mean[n_eval]
+        cov_eval = joint_cov[:n_eval, :n_eval]
+        cross_cov = joint_cov[:n_eval, n_eval]
+        observation_variance = noisy_candidate.variance.reshape(()).clamp_min(1e-30)
+
+        gain = cross_cov / observation_variance
+        residuals = fantasy_y.reshape(-1) - mean_cand
+        conditioned_means = mean_eval.unsqueeze(0) + residuals.unsqueeze(1) * gain.unsqueeze(0)
+
+        conditioned_cov = cov_eval - torch.outer(cross_cov, cross_cov) / observation_variance
+        conditioned_cov = 0.5 * (conditioned_cov + conditioned_cov.T)
+        conditioned_cov = conditioned_cov + self.sample_jitter * torch.eye(
+            n_eval,
+            device=x_eval.device,
+            dtype=x_eval.dtype,
+        )
+        try:
+            L = torch.linalg.cholesky(conditioned_cov)
+        except RuntimeError as error:
+            min_diag = conditioned_cov.diag().min().item()
+            raise RuntimeError(
+                "Cholesky failed while sampling fantasy-conditioned posterior "
+                f"functions. Covariance shape={tuple(conditioned_cov.shape)}, "
+                f"jitter={self.sample_jitter}, min_diag={min_diag}."
+            ) from error
+        return conditioned_means, L
 
     @torch.no_grad()
     def _sample_fantasized_observations(
@@ -574,12 +655,9 @@ class DistanceDispersion:
                 .clamp_min(1e-30)
             )
 
-        eps = torch.randn(
-            n_fantasies,
-            mean.numel(),
-            device=mean.device,
-            dtype=mean.dtype,
-            generator=self.generator,
+        eps = self._base_normal_samples(
+            n_samples=n_fantasies, dimension=mean.numel(),
+            base_grid_key="fantasy", device=mean.device, dtype=mean.dtype,
         )
 
         fantasy_y = (
@@ -692,6 +770,7 @@ class DistanceDispersion:
         model: gpytorch.models.ExactGP,
         n_samples: int,
         x_eval: torch.Tensor,
+        base_samples: torch.Tensor | None = None,
     ) -> Float[torch.Tensor, "n_samples n_eval"]:
         """Draw latent functions from the GP posterior.
 
@@ -703,6 +782,8 @@ class DistanceDispersion:
             Number of posterior functions to draw.
         x_eval
             Evaluation coordinates with shape ``(n_eval, d)``.
+        base_samples
+            Optional standard-normal draws shared with conditioned sampling.
 
         Returns
         -------
@@ -743,11 +824,8 @@ class DistanceDispersion:
                 f"min_diag={cov.diag().min().item()}."
             ) from error
 
-        eps = torch.randn(
-            n_samples,
-            mean.numel(),
-            device=device,
-            dtype=dtype,
+        eps = base_samples if base_samples is not None else torch.randn(
+            n_samples, mean.numel(), device=device, dtype=dtype,
             generator=self.generator,
         )
 
