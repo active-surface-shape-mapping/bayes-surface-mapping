@@ -123,12 +123,6 @@ class ActiveLearner:
             # Refit hyperparameters after incorporating the new observation.
             self._fit_model()
 
-            # Rank-one update:
-            # self.model(0.5 * torch.ones((1, 2)))
-            # self.model = self.model.get_fantasy_model(
-            #     self.next_x, ((self.next_y_orig - self._y_mean) / self._y_std).ravel()
-            # )
-
             # Run callbacks, e.g. for plotting, logging, etc.:
             self._ti = time()
             self._run_callbacks()
@@ -136,10 +130,7 @@ class ActiveLearner:
             self._log()
 
     def _init_datasets(self) -> tuple[BaseDataGenerator, BaseDataGenerator, BaseDataGenerator]:
-        """Initialize the data generator objects.
-
-        For now, this uses simulated data, but could be replaced by a subroutine
-        to run the simulation(s).
+        """Initialize observation generators from the configured datasets.
 
         Returns
         -------

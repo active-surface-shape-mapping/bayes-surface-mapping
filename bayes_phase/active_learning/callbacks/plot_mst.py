@@ -117,7 +117,7 @@ def _plot_mst_diagrams(
                     h01 = -2 * t**3 + 3 * t**2
                     h11 = t**3 - t**2
 
-                    # xy_smooth is the hermite
+                    # Evaluate the cubic Hermite segment at the sample points.
                     xy_smooth = ( 
                         h00[:, None] * seg["p0"] # Scaling
                         + h10[:, None] * seg["h"] * seg["m0"]
@@ -186,7 +186,7 @@ def _identify_branches(
 
         return branch
 
-    # Outer loop: Over split points. We will walk outward from split points to identify branches.
+    # Trace branches outward from each split point.
     for split_idx in split_points:
 
         # Nested loop: Over the connections of the current split point.
@@ -197,7 +197,7 @@ def _identify_branches(
 
             # Inner loop: Along branch connections for this branch.
             # Find the next unexplored connection and set the point at its end as the new active point.
-            # Repeat until we reach an endpoint.
+            # Continue until a branch endpoint.
             branch_indices = trace_branch(split_idx, next_idx)
 
             # Record the points along the branch.

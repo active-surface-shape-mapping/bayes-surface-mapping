@@ -13,7 +13,7 @@ def plot3d(learner: "ActiveLearner"):
     dtype = learner.train_x.dtype
     temp_grid = torch.linspace(0.0, 1.0, n_temp, device=device, dtype=dtype)
 
-    # Denormalizing using known minima/maxima in this case
+    # Normalize integer theta levels using the dataset bounds.
     theta_vals = torch.arange(
         learner.data_generator.min_theta,
         learner.data_generator.max_theta + 1,

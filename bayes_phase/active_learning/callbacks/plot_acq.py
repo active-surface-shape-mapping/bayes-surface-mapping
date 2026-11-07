@@ -125,7 +125,7 @@ def plot_acq(learner: "ActiveLearner"):
     pad = 0.05 * (zmax - zmin + 1e-12)
     z_range = [zmin - pad, zmax + pad]
 
-    # title with literate method name
+    # Title with acquisition display name.
     method = learner.config.acquisition_function
     METHOD_LABEL = {
         "dispersion": "EFDI",
