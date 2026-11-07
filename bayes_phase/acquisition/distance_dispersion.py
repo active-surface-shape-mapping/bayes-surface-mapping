@@ -557,12 +557,12 @@ class DistanceDispersion:
                 include_noise=True,
             )
 
-            if torch.any(
-                posterior.variance < -1e-6
-            ):
+            # .variance clamps small values; inspect the raw diagonal for diagnostics.
+            raw_variance = posterior.lazy_covariance_matrix.diagonal(dim1=-2, dim2=-1)
+            if torch.any(raw_variance < -1e-6):
                 warnings.warn(
                     "Negative posterior variance detected before clamping: "
-                    f"min={posterior.variance.min().item()}",
+                    f"min={raw_variance.min().item()}",
                     RuntimeWarning,
                     stacklevel=2,
                 )
@@ -642,12 +642,12 @@ class DistanceDispersion:
                     f"{posterior.mean.numel()}."
                 )
 
-            if torch.any(
-                posterior.variance < -1e-6
-            ):
+            # .variance clamps small values; inspect the raw diagonal for diagnostics.
+            raw_variance = posterior.lazy_covariance_matrix.diagonal(dim1=-2, dim2=-1)
+            if torch.any(raw_variance < -1e-6):
                 warnings.warn(
                     "Negative posterior variance detected before clamping: "
-                    f"min={posterior.variance.min().item()}",
+                    f"min={raw_variance.min().item()}",
                     RuntimeWarning,
                     stacklevel=2,
                 )

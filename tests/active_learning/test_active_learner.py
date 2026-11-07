@@ -17,20 +17,22 @@ ACQUISITIONS = ["random", "sobol", "eig", "dispersion"]
 @pytest.fixture
 def config(tmp_path):
     # Pytest provides a fresh temporary directory and config for each test case.
-    # Three positive, nonconstant heat-capacity curves with a peak per theta.
+    # Three replicate datasets with varied, positive curves across five theta levels.
     paths = []
-    temperatures = torch.linspace(100, 500, 17, dtype=torch.float64)
+    temperatures = torch.linspace(100, 500, 65, dtype=torch.float64)
     for replicate in range(3):
         path = tmp_path / f"run{replicate}.arrow"
         columns = {"temp_in_K": temperatures.tolist()}
-        for theta in range(1, 4):
-            peak = torch.exp(-((temperatures - (220 + 40 * theta)) / 65) ** 2)
-            columns[f"θ_{theta}"] = (1 + peak + 0.01 * replicate).tolist()
+        for theta in range(1, 6):
+            peak = torch.exp(-((temperatures - (180 + 40 * theta)) / 45) ** 2)
+            background = 1 + 0.15 * theta + 0.2 * (temperatures - 100) / 400
+            variation = 0.04 * torch.sin(temperatures / (25 + theta) + replicate)
+            columns[f"θ_{theta}"] = (background + peak + variation).tolist()
         pl.DataFrame(columns).write_ipc(path)
         paths.append(str(path))
-    # Six starting observations plus two acquisitions keep real GP fits small.
+    # Twenty starting observations cover the domain while keeping GP fits small.
     return ActiveLearnerConfig(
-        global_seed=42, n_iters=2, init_n_points=6, iter_n_candidates=3,
+        global_seed=42, n_iters=2, init_n_points=20, iter_n_candidates=3,
         init_dataset_paths=paths, sampling_dataset_paths=paths,
         ground_truth_dataset_paths=paths, base_savepath=str(tmp_path),
         base_kernel_kwargs={"ard_num_dims": 2},
