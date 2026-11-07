@@ -40,6 +40,9 @@ dev = [
 [tool.setuptools]
 packages = ["bayes_phase"]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.ruff.lint]
 extend-select = [
     "B", # Likely bugs
