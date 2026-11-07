@@ -81,8 +81,6 @@ def default_callback_every() -> dict[str, int]:
         "plot_mst": 20,
         "score_model_plot": 1,
         "plot": 20,
-        "plot3d": 20,
-        "plot_acq": 20,
     }
 
 class InitDataStrategy(StrEnum):
