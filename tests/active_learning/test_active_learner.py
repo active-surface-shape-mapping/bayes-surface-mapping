@@ -52,6 +52,50 @@ def assert_valid_points(learner, points):
     torch.testing.assert_close(theta, theta.round(), atol=1e-5, rtol=0)
 
 
+def test_sobol_uses_equal_width_theta_bins(config):
+    """Initialization, candidates, and acquisition all use the same floor mapping."""
+    config.acquisition_function = "sobol"
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(config.global_seed)
+        learner = ActiveLearner(config)
+        data = learner.data_generator
+        n_theta = int(data.max_theta - data.min_theta + 1)
+
+        def expected_points(unit_points):
+            raw = data.untransform_inputs(unit_points)
+            raw[:, 1] = data.min_theta + (unit_points[:, 1] * n_theta).floor().clamp(
+                0, n_theta - 1
+            )
+            return data.transform_inputs(raw)
+
+        # Match actual Sobol draws, including the persistent engine's next draw.
+        engine = torch.quasirandom.SobolEngine(2, scramble=True, seed=config.global_seed)
+        initial = engine.draw(config.init_n_points)
+        torch.testing.assert_close(learner.train_x, expected_points(initial))
+        next_x, _, _ = learner._acquire()
+        torch.testing.assert_close(next_x, expected_points(engine.draw(1)))
+        candidates = learner._generate_point_candidates(n_candidates=32, seed=123)
+        candidate_draws = torch.quasirandom.SobolEngine(2, scramble=True, seed=123).draw(32)
+        torch.testing.assert_close(candidates, expected_points(candidate_draws))
+
+        # A uniform set of bin midpoints gives every theta exactly 100 points.
+        u = torch.stack((torch.full((n_theta * 100,), 0.3),
+                         (torch.arange(n_theta * 100) + 0.5) / (n_theta * 100)), dim=1)
+        original = u.clone()
+        quantized = learner._quantize_theta(u, equal_bins=True)
+        raw = data.untransform_inputs(quantized)
+        _, counts = raw[:, 1].round().unique(return_counts=True)
+        assert counts.tolist() == [100] * n_theta
+        torch.testing.assert_close(quantized[:, 0], u[:, 0])
+        torch.testing.assert_close(u, original)
+        # Test exact bin edges as well as the closed upper endpoint.
+        edges = torch.stack((torch.full((n_theta + 1,), 0.3),
+                             torch.arange(n_theta + 1) / n_theta), dim=1)
+        raw_edges = data.untransform_inputs(learner._quantize_theta(edges, equal_bins=True))
+        torch.testing.assert_close(raw_edges[:, 1],
+                                   data.min_theta + torch.arange(n_theta + 1).clamp_max(n_theta - 1).to(raw_edges))
+
+
 def test_nested_sampling_updates_whole_slices_and_stops_when_exhausted(config):
     """Each action adds one new theta slice, charges once, and never repeats it."""
     config.init_data_strategy = "ns_slice"
