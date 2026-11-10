@@ -1,0 +1,71 @@
+ESDI - EIG — f1
+Mean difference: 0.10254
+Median difference: 0.10534
+SD of difference: 0.0162331
+Iterations compared: 300
+Threshold: 0.5
+ESDI iteration to threshold: 120
+EIG iteration to threshold: 212
+Iteration speedup vs run_b: 92
+Percent speedup vs run_b: 43.39622641509434
+Positive differences favor run_a; negative differences favor run_b.
+
+ESDI - EIG — same_slice_temp_error_mean_K
+Mean difference: -23.8088
+Median difference: -23.3376
+SD of difference: 7.10611
+Iterations compared: 300
+Threshold: 50
+ESDI iteration to threshold: 114
+EIG iteration to threshold: 177
+Iteration speedup vs run_b: 63
+Percent speedup vs run_b: 35.59322033898305
+Negative differences favor run_a; positive differences favor run_b.
+
+ESDI - Random — f1
+Mean difference: 0.148525
+Median difference: 0.156864
+SD of difference: 0.0361008
+Iterations compared: 300
+Threshold: 0.5
+ESDI iteration to threshold: 120
+Random iteration to threshold: None
+Iteration speedup vs run_b: None - one or more comparators may not have reached the specified threshold.
+Percent speedup vs run_b: None - one or more comparators may not have reached the specified threshold.
+Positive differences favor run_a; negative differences favor run_b.
+
+ESDI - Random — same_slice_temp_error_mean_K
+Mean difference: -41.706
+Median difference: -43.2492
+SD of difference: 6.77597
+Iterations compared: 300
+Threshold: 50
+ESDI iteration to threshold: 114
+Random iteration to threshold: None
+Iteration speedup vs run_b: None - one or more comparators may not have reached the specified threshold.
+Percent speedup vs run_b: None - one or more comparators may not have reached the specified threshold.
+Negative differences favor run_a; positive differences favor run_b.
+
+ESDI - Sobol — f1
+Mean difference: 0.0826365
+Median difference: 0.0852685
+SD of difference: 0.0153744
+Iterations compared: 300
+Threshold: 0.5
+ESDI iteration to threshold: 120
+Sobol iteration to threshold: 191
+Iteration speedup vs run_b: 71
+Percent speedup vs run_b: 37.17277486910995
+Positive differences favor run_a; negative differences favor run_b.
+
+ESDI - Sobol — same_slice_temp_error_mean_K
+Mean difference: -25.3745
+Median difference: -26.7167
+SD of difference: 5.10033
+Iterations compared: 300
+Threshold: 50
+ESDI iteration to threshold: 114
+Sobol iteration to threshold: 206
+Iteration speedup vs run_b: 92
+Percent speedup vs run_b: 44.66019417475728
+Negative differences favor run_a; positive differences favor run_b.
