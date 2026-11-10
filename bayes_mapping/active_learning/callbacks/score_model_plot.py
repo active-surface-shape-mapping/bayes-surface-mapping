@@ -191,7 +191,7 @@ def _plot_metrics_by_iteration(
     if learner.config.acquisition_function == "random":
         literate_acquisition_function = "Random sampling"
     elif learner.config.acquisition_function == "dispersion":
-        literate_acquisition_function = "EFDI"
+        literate_acquisition_function = "ESDI"
     elif learner.config.acquisition_function == "eig":
         literate_acquisition_function = "EIG"
     elif learner.config.acquisition_function == "sobol":
@@ -771,7 +771,7 @@ def score_model_plot(learner: "ActiveLearner"):
 
     for i in range(3):
         ax[0, i].set_xlabel("Temperature")
-        ax[0, i].set_ylabel("Theta")
+        ax[0, i].set_ylabel("Coverage")
 
     # Plot MSTs + scoring boxes
     _plot_mst_diagrams_with_grid(

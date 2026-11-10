@@ -74,7 +74,7 @@ def plot(learner: "ActiveLearner"):
     ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100)
     for i in range(2):
         ax[0, i].set_xlabel("Temperature (°C)")
-        ax[0, i].set_ylabel("Theta")
+        ax[0, i].set_ylabel("Coverage")
 
     savepath.parent.mkdir(exist_ok=True, parents=True)
 

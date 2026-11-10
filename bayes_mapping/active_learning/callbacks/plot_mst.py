@@ -362,7 +362,7 @@ def plot_mst(
     ax[0, 1].scatter(new_xs[:, 0], new_xs[:, 1], color="orange", s=100)
     for i in range(2):
         ax[0, i].set_xlabel("Temperature")
-        ax[0, i].set_ylabel("Theta")
+        ax[0, i].set_ylabel("Coverage")
 
     ax[0,0].set_title("Ground truth phase diagram boundary")
     ax[0,1].set_title("Sampled phase diagrams and training points")
