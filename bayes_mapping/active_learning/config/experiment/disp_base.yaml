@@ -11,7 +11,7 @@ init_n_points: 20
 iter_n_candidates: 300
 mean_module: QUADRATIC
 base_kernel: MATERN52
-acquisition_n_mc_samples: 500
+acquisition_n_mc_samples: 250
 acquisition_fantasy_quadrature: True
 acquisition_fantasy_quadrature_points: 5
 diagram_generator_kwargs:
