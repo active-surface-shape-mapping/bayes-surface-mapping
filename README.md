@@ -1,5 +1,5 @@
 # Overview
-This is the repo for the paper, ""Accelerating Materials Discovery with Active Thermodynamic Surface Shape Mapping" at the AI4Mat workshop at NeurIPS 2026.
+This is the repo for the paper, ""Accelerating Materials Discovery with Active Thermodynamic Surface Shape Mapping", presented at the AI4Mat workshop at NeurIPS 2026.
 # Installation
 ```sh
 git clone git@github.com: active-surface-shape-mapping/bayes-surface-mapping.git
